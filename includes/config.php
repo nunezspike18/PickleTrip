@@ -5,7 +5,7 @@ if (!defined('APP_ROOT')) {
 }
 
 if (!defined('DB_TYPE')) {
-    define('DB_TYPE', getenv('PICKLE_DB_TYPE') ?: 'sqlite');
+    define('DB_TYPE', getenv('PICKLE_DB_TYPE') ?: 'mysql');
 }
 
 if (!defined('DB_HOST')) {
@@ -13,7 +13,7 @@ if (!defined('DB_HOST')) {
 }
 
 if (!defined('DB_NAME')) {
-    define('DB_NAME', getenv('PICKLE_DB_NAME') ?: 'pickletrip');
+    define('DB_NAME', getenv('PICKLE_DB_NAME') ?: 'pickle_trip_app');
 }
 
 if (!defined('DB_USER')) {

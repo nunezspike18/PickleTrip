@@ -12,21 +12,61 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const addButton = container.querySelector('[data-add-player]');
-        if (!addButton) {
+        const form = container.closest('form');
+        const addButton = form ? form.querySelector('[data-add-player]') : null;
+        const countLabel = form ? form.querySelector('[data-player-count]') : null;
+        if (!form || !addButton || !countLabel) {
             return;
         }
 
+        function updatePlayerCount() {
+            const inputs = Array.from(container.querySelectorAll('input[name="other_players[]"]'));
+            const additionalPlayers = inputs.filter(function (input) {
+                return input.value.trim() !== '';
+            }).length;
+            const totalPlayers = additionalPlayers + 1;
+            countLabel.textContent = 'Players in this booking: ' + totalPlayers + ' / 12';
+            addButton.disabled = totalPlayers >= 12 || inputs.length >= 11;
+        }
+
         addButton.addEventListener('click', function () {
+            if (addButton.disabled) {
+                return;
+            }
+
             const row = document.createElement('div');
             row.className = 'player-row';
-            row.innerHTML = '<input type="text" name="other_players[]" placeholder="Player name" /> <button type="button" class="small-button" data-remove-player>Remove</button>';
-            container.appendChild(row);
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.name = 'other_players[]';
+            input.placeholder = 'Player name';
+            input.setAttribute('aria-label', 'Additional player name');
 
-            row.querySelector('[data-remove-player]').addEventListener('click', function () {
-                row.remove();
-            });
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'small-button';
+            removeButton.dataset.removePlayer = '';
+            removeButton.textContent = 'Remove';
+
+            row.append(input, removeButton);
+            container.appendChild(row);
+            input.addEventListener('input', updatePlayerCount);
+            input.focus();
+            updatePlayerCount();
         });
+
+        container.addEventListener('click', function (event) {
+            const removeButton = event.target.closest('[data-remove-player]');
+            if (removeButton) {
+                removeButton.closest('.player-row').remove();
+                updatePlayerCount();
+            }
+        });
+
+        container.querySelectorAll('input[name="other_players[]"]').forEach(function (input) {
+            input.addEventListener('input', updatePlayerCount);
+        });
+        updatePlayerCount();
     }
 
     attachPlayerAdder('open-play-player-list');

@@ -10,25 +10,18 @@ function getPdo(): PDO
     }
 
     $dbType = strtoupper(DB_TYPE);
+    $options = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ];
 
-    try {
-        if ($dbType === 'MYSQL' || $dbType === 'MARIADB') {
-            $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            ]);
-        } else {
-            $pdo = new PDO('sqlite:' . DB_PATH, null, null, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            ]);
-        }
-    } catch (Throwable $e) {
-        $pdo = new PDO('sqlite:' . DB_PATH, null, null, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]);
+    if ($dbType === 'MYSQL' || $dbType === 'MARIADB') {
+        $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
+        $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+    } elseif ($dbType === 'SQLITE') {
+        $pdo = new PDO('sqlite:' . DB_PATH, null, null, $options);
+    } else {
+        throw new InvalidArgumentException('Unsupported database type: ' . DB_TYPE);
     }
 
     initDatabase($pdo);
@@ -37,64 +30,119 @@ function getPdo(): PDO
 
 function initDatabase(PDO $pdo): void
 {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS courts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            max_players INTEGER NOT NULL DEFAULT 12,
-            status TEXT NOT NULL DEFAULT 'available',
-            is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
+    if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS courts (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                max_players INT NOT NULL DEFAULT 12,
+                status VARCHAR(32) NOT NULL DEFAULT 'available',
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
 
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            booking_reference TEXT NOT NULL UNIQUE,
-            booking_type TEXT NOT NULL,
-            booking_date TEXT NOT NULL,
-            start_time TEXT NOT NULL,
-            end_time TEXT NOT NULL,
-            court_id INTEGER NOT NULL,
-            host_name TEXT NOT NULL,
-            contact_number TEXT NOT NULL,
-            email TEXT DEFAULT '',
-            player_names TEXT DEFAULT '',
-            players_count INTEGER NOT NULL DEFAULT 1,
-            status TEXT NOT NULL DEFAULT 'confirmed',
-            notes TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (court_id) REFERENCES courts(id)
-        )
-    ");
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS bookings (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                booking_reference VARCHAR(32) NOT NULL UNIQUE,
+                booking_type VARCHAR(32) NOT NULL,
+                booking_date DATE NOT NULL,
+                start_time TIME NOT NULL,
+                end_time TIME NOT NULL,
+                court_id INT UNSIGNED NOT NULL,
+                host_name VARCHAR(255) NOT NULL,
+                contact_number VARCHAR(50) NOT NULL,
+                email VARCHAR(255) NOT NULL DEFAULT '',
+                player_names TEXT NOT NULL,
+                players_count INT NOT NULL DEFAULT 1,
+                status VARCHAR(32) NOT NULL DEFAULT 'confirmed',
+                notes TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_bookings_court_schedule (court_id, booking_date, status, start_time, end_time),
+                CONSTRAINT fk_bookings_court FOREIGN KEY (court_id) REFERENCES courts(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
 
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS booking_players (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            booking_id INTEGER NOT NULL,
-            player_name TEXT NOT NULL,
-            FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
-        )
-    ");
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS booking_players (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                booking_id BIGINT UNSIGNED NOT NULL,
+                player_name VARCHAR(255) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
 
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS admins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            full_name TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS admins (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                full_name VARCHAR(255) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } else {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS courts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                max_players INTEGER NOT NULL DEFAULT 12,
+                status TEXT NOT NULL DEFAULT 'available',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS bookings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                booking_reference TEXT NOT NULL UNIQUE,
+                booking_type TEXT NOT NULL,
+                booking_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                court_id INTEGER NOT NULL,
+                host_name TEXT NOT NULL,
+                contact_number TEXT NOT NULL,
+                email TEXT DEFAULT '',
+                player_names TEXT DEFAULT '',
+                players_count INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'confirmed',
+                notes TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (court_id) REFERENCES courts(id)
+            )
+        ");
+
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS booking_players (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                booking_id INTEGER NOT NULL,
+                player_name TEXT NOT NULL,
+                FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
+            )
+        ");
+
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+    }
 
     $courtCount = (int) $pdo->query('SELECT COUNT(*) FROM courts')->fetchColumn();
     if ($courtCount === 0) {
         $courtNames = ['Court 1', 'Court 2', 'Court 3', 'Court 4'];
         foreach ($courtNames as $courtName) {
-            $stmt = $pdo->prepare('INSERT INTO courts (name, max_players, status, is_active) VALUES (?, 12, "available", 1)');
+            $stmt = $pdo->prepare("INSERT INTO courts (name, max_players, status, is_active) VALUES (?, 12, 'available', 1)");
             $stmt->execute([$courtName]);
         }
     }
@@ -161,7 +209,7 @@ function getCourtAvailabilityToday(): array
 
     foreach ($courts as $court) {
         $courtId = (int) $court['id'];
-        $countStatement = $pdo->prepare('SELECT COALESCE(SUM(players_count), 0) FROM bookings WHERE court_id = ? AND booking_date = ? AND status = "confirmed"');
+        $countStatement = $pdo->prepare("SELECT COALESCE(SUM(players_count), 0) FROM bookings WHERE court_id = ? AND booking_date = ? AND status = 'confirmed'");
         $countStatement->execute([$courtId, $today]);
         $currentTotal = (int) $countStatement->fetchColumn();
 
@@ -194,13 +242,13 @@ function getDashboardStats(): array
     $totalPlayers = (int) $pdo->query('SELECT COALESCE(SUM(players_count), 0) FROM bookings')->fetchColumn();
     $availableCourts = (int) $pdo->query('SELECT COUNT(*) FROM courts WHERE is_active = 1')->fetchColumn();
 
-    $fullyBookedStatement = $pdo->prepare('SELECT COUNT(*) FROM courts WHERE is_active = 1 AND id IN (SELECT court_id FROM bookings WHERE booking_date = ? AND status = "confirmed" GROUP BY court_id HAVING SUM(players_count) >= 12)');
+    $fullyBookedStatement = $pdo->prepare("SELECT COUNT(*) FROM courts WHERE is_active = 1 AND id IN (SELECT court_id FROM bookings WHERE booking_date = ? AND status = 'confirmed' GROUP BY court_id HAVING SUM(players_count) >= 12)");
     $fullyBookedStatement->execute([$today]);
     $fullyBookedCourts = (int) $fullyBookedStatement->fetchColumn();
 
     $todaysBookings = (int) $pdo->query('SELECT COUNT(*) FROM bookings WHERE booking_date = ' . $pdo->quote($today))->fetchColumn();
-    $openPlayBookings = (int) $pdo->query('SELECT COUNT(*) FROM bookings WHERE booking_type = "open_play"')->fetchColumn();
-    $courtRentalBookings = (int) $pdo->query('SELECT COUNT(*) FROM bookings WHERE booking_type = "court_rental"')->fetchColumn();
+    $openPlayBookings = (int) $pdo->query("SELECT COUNT(*) FROM bookings WHERE booking_type = 'open_play'")->fetchColumn();
+    $courtRentalBookings = (int) $pdo->query("SELECT COUNT(*) FROM bookings WHERE booking_type = 'court_rental'")->fetchColumn();
 
     return [
         'totalBookings' => $totalBookings,
@@ -213,11 +261,17 @@ function getDashboardStats(): array
     ];
 }
 
-function getRecentBookings(int $limit = 6): array
+function getRecentBookings(int $limit = 6, bool $confirmedOnly = false): array
 {
     $pdo = getPdo();
-    $stmt = $pdo->prepare('SELECT b.*, c.name AS court_name FROM bookings b LEFT JOIN courts c ON c.id = b.court_id ORDER BY b.created_at DESC LIMIT ?');
-    $stmt->execute([$limit]);
+    $sql = 'SELECT b.*, c.name AS court_name FROM bookings b LEFT JOIN courts c ON c.id = b.court_id';
+    if ($confirmedOnly) {
+        $sql .= " WHERE b.status = 'confirmed'";
+    }
+    $sql .= ' ORDER BY b.created_at DESC LIMIT ?';
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(1, max(0, $limit), PDO::PARAM_INT);
+    $stmt->execute();
     return $stmt->fetchAll();
 }
 
@@ -228,7 +282,8 @@ function getBookingsForAdmin(string $search = '', string $date = '', string $typ
     $params = [];
 
     if ($search !== '') {
-        $sql .= ' AND (CAST(b.id AS TEXT) LIKE ? OR b.host_name LIKE ? OR b.player_names LIKE ?)';
+        $idCast = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'CHAR' : 'TEXT';
+        $sql .= ' AND (CAST(b.id AS ' . $idCast . ') LIKE ? OR b.host_name LIKE ? OR b.player_names LIKE ?)';
         $searchTerm = '%' . $search . '%';
         $params[] = $searchTerm;
         $params[] = $searchTerm;
@@ -255,28 +310,66 @@ function getBookingsForAdmin(string $search = '', string $date = '', string $typ
 function getCourtPlayers(int $courtId, string $bookingDate): int
 {
     $pdo = getPdo();
-    $stmt = $pdo->prepare('SELECT COALESCE(SUM(players_count), 0) FROM bookings WHERE court_id = ? AND booking_date = ? AND status = "confirmed"');
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(players_count), 0) FROM bookings WHERE court_id = ? AND booking_date = ? AND status = 'confirmed'");
     $stmt->execute([$courtId, $bookingDate]);
     return (int) $stmt->fetchColumn();
 }
 
-function courtHasAvailability(int $courtId, string $date, string $startTime, string $endTime): array
+function courtHasAvailability(
+    int $courtId,
+    string $date,
+    string $startTime,
+    string $endTime,
+    string $bookingType = '',
+    int $playersToAdd = 1,
+    int $maxPlayers = 12
+): array
 {
     $pdo = getPdo();
-    $statement = $pdo->prepare('SELECT * FROM bookings WHERE court_id = ? AND booking_date = ? AND status = "confirmed" AND start_time < ? AND end_time > ? LIMIT 1');
-    $statement->execute([$courtId, $date, $endTime, $startTime]);
-    $row = $statement->fetch();
-
-    if ($row) {
-        return ['available' => false, 'message' => 'This court is already booked for the selected date and time.'];
+    $statement = $pdo->prepare("SELECT booking_type, start_time, end_time, players_count FROM bookings WHERE court_id = ? AND booking_date = ? AND status = 'confirmed'");
+    $statement->execute([$courtId, $date]);
+    $startMinute = timeToMinutes($startTime);
+    $endMinute = timeToMinutes($endTime);
+    if ($endMinute <= $startMinute) {
+        $endMinute += 24 * 60;
     }
 
-    $playersTotal = getCourtPlayers($courtId, $date);
-    if ($playersTotal >= 12) {
-        return ['available' => false, 'message' => 'This court is already at full capacity for that schedule.'];
+    $openPlayPlayers = 0;
+    foreach ($statement->fetchAll() as $booking) {
+        $existingStart = timeToMinutes($booking['start_time']);
+        $existingEnd = timeToMinutes($booking['end_time']);
+        if ($existingEnd <= $existingStart) {
+            $existingEnd += 24 * 60;
+        }
+
+        $sameOpenPlaySession = $bookingType === 'open_play'
+            && $booking['booking_type'] === 'open_play'
+            && $existingStart === $startMinute
+            && $existingEnd === $endMinute;
+
+        if ($sameOpenPlaySession) {
+            $openPlayPlayers += (int) $booking['players_count'];
+            continue;
+        }
+
+        if ($startMinute < $existingEnd && $existingStart < $endMinute) {
+            return ['available' => false, 'message' => 'This court is already booked for the selected date and time.'];
+        }
+    }
+
+    if ($bookingType === 'open_play') {
+        if ($openPlayPlayers + $playersToAdd > $maxPlayers) {
+            return ['available' => false, 'message' => 'This open play session has reached the court player limit.'];
+        }
     }
 
     return ['available' => true, 'message' => 'Court is available.'];
+}
+
+function timeToMinutes(string $time): int
+{
+    $parts = explode(':', $time);
+    return ((int) ($parts[0] ?? 0) * 60) + (int) ($parts[1] ?? 0);
 }
 
 function fetchAllPlayers(): array

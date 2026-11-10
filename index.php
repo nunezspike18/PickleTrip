@@ -27,13 +27,15 @@ function handleBookingSubmission(array $postData): array
     }
 
     if ($bookingType === 'open_play') {
+        $openPlaySlots = [
+            '16:00-20:00' => ['16:00', '20:00'],
+            '20:00-00:00' => ['20:00', '00:00'],
+        ];
         $slot = sanitizeText($postData['slot_choice'] ?? '');
-        if ($slot === '') {
+        if (!isset($openPlaySlots[$slot])) {
             return ['success' => false, 'message' => 'Please choose an open play time slot.'];
         }
-        [$startTime, $endTime] = explode('-', $slot, 2);
-        $startTime = trim($startTime);
-        $endTime = trim($endTime);
+        [$startTime, $endTime] = $openPlaySlots[$slot];
     } else {
         $startTime = sanitizeText($postData['start_time'] ?? '');
         $durationHours = (float) ($postData['rental_duration'] ?? 1);
@@ -44,19 +46,28 @@ function handleBookingSubmission(array $postData): array
         return ['success' => false, 'message' => 'Please select a valid time.'];
     }
 
-    $availability = courtHasAvailability($courtId, $date, $startTime, $endTime);
+    $totalPlayers = 1 + count($players);
+    $maxPlayers = (int) $court['max_players'];
+    if ($totalPlayers > $maxPlayers) {
+        return ['success' => false, 'message' => 'A booking can include a maximum of ' . $maxPlayers . ' players including the booking host.'];
+    }
+
+    $availability = courtHasAvailability(
+        $courtId,
+        $date,
+        $startTime,
+        $endTime,
+        $bookingType,
+        $totalPlayers,
+        $maxPlayers
+    );
     if (!$availability['available']) {
         return ['success' => false, 'message' => $availability['message']];
     }
 
-    $totalPlayers = 1 + count($players);
-    if ($totalPlayers > 12) {
-        return ['success' => false, 'message' => 'A booking can include a maximum of 12 players including the booking host.'];
-    }
-
     $reference = generateReference();
     $pdo = getPdo();
-    $stmt = $pdo->prepare('INSERT INTO bookings (booking_reference, booking_type, booking_date, start_time, end_time, court_id, host_name, contact_number, email, player_names, players_count, status, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "confirmed", ?, CURRENT_TIMESTAMP)');
+    $stmt = $pdo->prepare("INSERT INTO bookings (booking_reference, booking_type, booking_date, start_time, end_time, court_id, host_name, contact_number, email, player_names, players_count, status, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, CURRENT_TIMESTAMP)");
     $playerList = implode(', ', $players);
     $result = $stmt->execute([$reference, $bookingType, $date, $startTime, $endTime, $courtId, $hostName, $contactNumber, $email, $playerList, $totalPlayers, 'Booking created from public website.']);
 
@@ -94,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['booking_type'])) {
 }
 
 $overview = getCourtAvailabilityToday();
-$recentBookings = getRecentBookings(4);
+$recentBookings = getRecentBookings(10, true);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -103,7 +114,7 @@ $recentBookings = getRecentBookings(4);
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pickle Trip | Play. Book. Enjoy!</title>
     <meta name="description" content="Book open play sessions and rent pickleball courts with Pickle Trip." />
-    <link rel="stylesheet" href="assets/css/style.css" />
+    <link rel="stylesheet" href="assets/css/style.css?v=2" />
 </head>
 <body>
     <header class="site-header">
@@ -208,16 +219,8 @@ $recentBookings = getRecentBookings(4);
                                     <label for="op_slot">Time slot</label>
                                     <select id="op_slot" name="slot_choice" required>
                                         <option value="">Select slot</option>
-                                        <option value="08:00-09:00">08:00 AM - 09:00 AM</option>
-                                        <option value="09:00-10:00">09:00 AM - 10:00 AM</option>
-                                        <option value="10:00-11:00">10:00 AM - 11:00 AM</option>
-                                        <option value="11:00-12:00">11:00 AM - 12:00 PM</option>
-                                        <option value="12:00-13:00">12:00 PM - 01:00 PM</option>
-                                        <option value="13:00-14:00">01:00 PM - 02:00 PM</option>
-                                        <option value="14:00-15:00">02:00 PM - 03:00 PM</option>
-                                        <option value="15:00-16:00">03:00 PM - 04:00 PM</option>
-                                        <option value="17:00-18:00">05:00 PM - 06:00 PM</option>
-                                        <option value="18:00-19:00">06:00 PM - 07:00 PM</option>
+                                        <option value="16:00-20:00">4:00 PM - 8:00 PM</option>
+                                        <option value="20:00-00:00">8:00 PM - 12:00 AM</option>
                                     </select>
                                 </div>
                                 <div class="form-field">
@@ -249,6 +252,7 @@ $recentBookings = getRecentBookings(4);
                                             <button type="button" class="small-button" data-remove-player>Remove</button>
                                         </div>
                                     </div>
+                                    <p class="player-count" data-player-count aria-live="polite">Players in this booking: 1 / 12</p>
                                     <button type="button" class="add-player" data-add-player>Add another player</button>
                                 </div>
                             </div>
@@ -340,6 +344,7 @@ $recentBookings = getRecentBookings(4);
                                             <button type="button" class="small-button" data-remove-player>Remove</button>
                                         </div>
                                     </div>
+                                    <p class="player-count" data-player-count aria-live="polite">Players in this booking: 1 / 12</p>
                                     <button type="button" class="add-player" data-add-player>Add another player</button>
                                 </div>
                             </div>
@@ -399,32 +404,39 @@ $recentBookings = getRecentBookings(4);
                 </div>
                 <div class="card report-box">
                     <?php if ($recentBookings): ?>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Ref</th>
-                                    <th>Type</th>
-                                    <th>Host</th>
-                                    <th>Court</th>
-                                    <th>Date</th>
-                                    <th>Time</th>
-                                    <th>Players</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($recentBookings as $booking): ?>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
                                     <tr>
-                                        <td><strong><?= htmlspecialchars($booking['booking_reference']) ?></strong></td>
-                                        <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $booking['booking_type']))) ?></td>
-                                        <td><?= htmlspecialchars($booking['host_name']) ?></td>
-                                        <td><?= htmlspecialchars($booking['court_name'] ?? 'Court') ?></td>
-                                        <td><?= htmlspecialchars(formatDate($booking['booking_date'])) ?></td>
-                                        <td><?= htmlspecialchars(formatTime($booking['start_time']) . ' - ' . formatTime($booking['end_time'])) ?></td>
-                                        <td><?= (int) $booking['players_count'] ?></td>
+                                        <th>Ref</th>
+                                        <th>Type</th>
+                                        <th>Host</th>
+                                        <th>Court</th>
+                                        <th>Date</th>
+                                        <th>Time</th>
+                                        <th>Players</th>
                                     </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($recentBookings as $booking): ?>
+                                        <tr>
+                                            <td><strong><?= htmlspecialchars($booking['booking_reference']) ?></strong></td>
+                                            <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $booking['booking_type']))) ?></td>
+                                            <td><?= htmlspecialchars($booking['host_name']) ?></td>
+                                            <td><?= htmlspecialchars($booking['court_name'] ?? 'Court') ?></td>
+                                            <td><?= htmlspecialchars(formatDate($booking['booking_date'])) ?></td>
+                                            <td><?= htmlspecialchars(formatTime($booking['start_time']) . ' - ' . formatTime($booking['end_time'])) ?></td>
+                                            <td>
+                                                <strong><?= (int) $booking['players_count'] ?> total</strong>
+                                                <div class="muted-note">
+                                                    <?= htmlspecialchars(implode(', ', array_filter([$booking['host_name'], $booking['player_names']]))) ?>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     <?php else: ?>
                         <p class="muted-note">No recent bookings yet. Reserve your first pickleball session to get started.</p>
                     <?php endif; ?>
@@ -482,6 +494,6 @@ $recentBookings = getRecentBookings(4);
         </div>
     </footer>
 
-    <script src="assets/js/main.js"></script>
+    <script src="assets/js/main.js?v=2"></script>
 </body>
 </html>

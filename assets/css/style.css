@@ -460,10 +460,24 @@ textarea {
     margin-bottom: 10px;
 }
 
+.player-row input {
+    min-width: 0;
+}
+
+.player-row .small-button {
+    white-space: nowrap;
+}
+
 .player-stack {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+.player-count {
+    margin: 4px 0 12px;
+    color: var(--muted);
+    font-size: 0.9rem;
 }
 
 .add-player {
@@ -474,6 +488,11 @@ textarea {
     border-radius: 12px;
     font-weight: 700;
     cursor: pointer;
+}
+
+.add-player:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .form-actions {
@@ -756,6 +775,14 @@ td .muted {
     .court-grid,
     .booking-steps {
         grid-template-columns: 1fr;
+    }
+
+    .player-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .player-row .small-button {
+        justify-self: start;
     }
 
     .admin-main {

@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'cancel_booking') {
         $bookingId = (int) ($_POST['booking_id'] ?? 0);
         if ($bookingId > 0) {
-            $stmt = $pdo->prepare('UPDATE bookings SET status = "cancelled", updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+            $stmt = $pdo->prepare("UPDATE bookings SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?");
             $stmt->execute([$bookingId]);
         }
         header('Location: /admin/index.php?page=bookings');
@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add_court') {
         $name = sanitizeText($_POST['name'] ?? '');
         if ($name !== '') {
-            $stmt = $pdo->prepare('INSERT INTO courts (name, max_players, status, is_active) VALUES (?, 12, "available", 1)');
+            $stmt = $pdo->prepare("INSERT INTO courts (name, max_players, status, is_active) VALUES (?, 12, 'available', 1)");
             $stmt->execute([$name]);
         }
         header('Location: /admin/index.php?page=courts');
@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $courtId = (int) ($_POST['court_id'] ?? 0);
         $state = (int) ($_POST['is_active'] ?? 0);
         if ($courtId > 0) {
-            $stmt = $pdo->prepare('UPDATE courts SET is_active = ?, status = CASE WHEN ? = 1 THEN "available" ELSE "inactive" END WHERE id = ?');
+            $stmt = $pdo->prepare("UPDATE courts SET is_active = ?, status = CASE WHEN ? = 1 THEN 'available' ELSE 'inactive' END WHERE id = ?");
             $stmt->execute([$state, $state, $courtId]);
         }
         header('Location: /admin/index.php?page=courts');
