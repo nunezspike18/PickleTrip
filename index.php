@@ -114,7 +114,7 @@ $recentBookings = getRecentBookings(10, true);
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pickle Trip | Play. Book. Enjoy!</title>
     <meta name="description" content="Book open play sessions and rent pickleball courts with Pickle Trip." />
-    <link rel="stylesheet" href="assets/css/style.css?v=4" />
+    <link rel="stylesheet" href="assets/css/style.css?v=6" />
 </head>
 <body>
     <header class="site-header">
@@ -202,7 +202,7 @@ $recentBookings = getRecentBookings(10, true);
                             <div class="form-grid">
                                 <div class="form-field">
                                     <label for="op_date">Booking date</label>
-                                    <input id="op_date" type="date" name="booking_date" required />
+                                    <input id="op_date" type="date" name="booking_date" value="<?= htmlspecialchars(date('Y-m-d')) ?>" required />
                                 </div>
                                 <div class="form-field">
                                     <label for="op_slot">Time slot</label>
@@ -215,9 +215,9 @@ $recentBookings = getRecentBookings(10, true);
                                 <div class="form-field">
                                     <label for="op_court">Court</label>
                                     <select id="op_court" name="court_id" required>
-                                        <option value="">Select court</option>
-                                        <?php foreach ($overview as $court): ?>
-                                            <option value="<?= (int) $court['id'] ?>"><?= htmlspecialchars($court['name']) ?> - <?= htmlspecialchars($court['capacityText']) ?></option>
+                                        <option value="">Select court and time</option>
+                                        <?php foreach (getCourtList() as $court): ?>
+                                            <option value="<?= (int) $court['id'] ?>" data-court-name="<?= htmlspecialchars($court['name']) ?>"><?= htmlspecialchars($court['name']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                     <div class="court-roster" id="open-play-court-roster" aria-live="polite" hidden>
@@ -488,6 +488,6 @@ $recentBookings = getRecentBookings(10, true);
         </div>
     </footer>
 
-    <script src="assets/js/main.js?v=4"></script>
+    <script src="assets/js/main.js?v=6"></script>
 </body>
 </html>

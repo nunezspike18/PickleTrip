@@ -410,18 +410,24 @@ function getOpenPlayRoster(int $courtId, string $date, string $startTime, string
             continue;
         }
 
-        $playersBooked += (int) $booking['players_count'];
-        $players[] = $booking['host_name'];
+        $bookingPlayers = [$booking['host_name']];
         $additionalPlayers = getBookingPlayers((int) $booking['id']);
         if (!$additionalPlayers) {
             $additionalPlayers = parsePlayerNames(explode(',', (string) $booking['player_names']));
         }
-        array_push($players, ...$additionalPlayers);
+        array_push($bookingPlayers, ...$additionalPlayers);
+
+        $bookingPlayerCount = max((int) $booking['players_count'], count($bookingPlayers));
+        $playersBooked += $bookingPlayerCount;
+        array_push($players, ...$bookingPlayers);
+        for ($missingNames = count($bookingPlayers); $missingNames < $bookingPlayerCount; $missingNames++) {
+            $players[] = 'Player name not provided';
+        }
     }
 
     return [
         'players_booked' => $playersBooked,
-        'players' => array_values(array_unique(array_filter($players, static fn ($name) => trim((string) $name) !== ''))),
+        'players' => array_values(array_filter($players, static fn ($name) => trim((string) $name) !== '')),
     ];
 }
 

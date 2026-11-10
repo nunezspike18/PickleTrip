@@ -93,33 +93,36 @@ document.addEventListener('DOMContentLoaded', function () {
                     rosterController = null;
                 }
 
-                if (!courtInput.value) {
-                    rosterPanel.hidden = true;
-                    return;
-                }
-
-                rosterPanel.hidden = false;
-                rosterTitle.textContent = courtInput.options[courtInput.selectedIndex].text.split(' - ')[0];
+                rosterPanel.hidden = !courtInput.value;
                 rosterPlayers.replaceChildren();
 
                 if (!dateInput.value || !slotInput.value) {
-                    rosterStatus.textContent = 'Choose a booking date and time slot to see who has joined this court.';
+                    Array.from(courtInput.options).forEach(function (option) {
+                        if (option.value) {
+                            option.textContent = option.dataset.courtName + ' — choose date and time';
+                        }
+                    });
+                    if (courtInput.value) {
+                        rosterTitle.textContent = courtInput.options[courtInput.selectedIndex].dataset.courtName;
+                        rosterStatus.textContent = 'Choose a booking date and time slot to see who has joined this court.';
+                    }
                     return;
                 }
 
                 const playerNames = Array.from(playerList.querySelectorAll('input[name="other_players[]"]'))
                     .map(function (input) { return input.value.trim(); })
                     .filter(function (name, index, names) { return name !== '' && names.indexOf(name) === index; });
-                const playersCount = Math.min(12, playerNames.length + 1);
+                const playersCount = playerNames.length + 1;
                 const params = new URLSearchParams({
                     booking_date: dateInput.value,
                     slot_choice: slotInput.value,
-                    court_id: courtInput.value,
                     players_count: String(playersCount)
                 });
 
                 rosterController = new AbortController();
-                rosterStatus.textContent = 'Loading players for this court...';
+                if (courtInput.value) {
+                    rosterStatus.textContent = 'Loading players for this court...';
+                }
 
                 try {
                     const response = await fetch('availability.php?' + params.toString(), {
@@ -132,25 +135,72 @@ document.addEventListener('DOMContentLoaded', function () {
                         throw new Error(result.error || 'Could not load players for this court.');
                     }
 
+                    result.courts.forEach(function (court) {
+                        const option = courtInput.querySelector('option[value="' + court.id + '"]');
+                        if (option) {
+                            const pendingSuffix = playersCount > 1 ? ' (+' + playersCount + ' in your booking)' : '';
+                            option.textContent = court.name + ' — ' + court.players_booked + '/' + court.max_players + ' booked' + pendingSuffix;
+                        }
+                    });
+
+                    if (!courtInput.value) {
+                        return;
+                    }
+
+                    const selectedCourt = result.courts.find(function (court) {
+                        return String(court.id) === courtInput.value;
+                    });
+                    if (!selectedCourt) {
+                        throw new Error('The selected court is no longer available.');
+                    }
+
                     const selectedSlot = slotInput.options[slotInput.selectedIndex].text;
-                    rosterTitle.textContent = result.court_name + ' — ' + result.players_booked + '/' + result.max_players
-                        + ' players booked for ' + dateInput.value + ' (' + selectedSlot + ')';
-                    rosterStatus.textContent = result.players.length
-                        ? result.players_remaining + ' spot' + (result.players_remaining === 1 ? '' : 's') + ' remaining. ' + result.message
-                        : 'No players booked for this court and time yet. ' + result.message;
-                    result.players.forEach(function (name) {
+                    const pendingHost = (openPlayForm.querySelector('[name="host_name"]')?.value || '').trim();
+                    const pendingPlayers = playerNames;
+                    const pendingCount = pendingHost || pendingPlayers.length
+                        ? 1 + playerNames.length
+                        : 0;
+                    rosterTitle.textContent = selectedCourt.name + ' — ' + selectedCourt.players_booked + '/' + selectedCourt.max_players
+                        + ' booked for ' + dateInput.value + ' (' + selectedSlot + ')';
+                    rosterStatus.textContent = selectedCourt.players.length
+                        ? selectedCourt.players_remaining + ' spot' + (selectedCourt.players_remaining === 1 ? '' : 's') + ' remaining. ' + selectedCourt.message
+                        : 'No players booked for this court and time yet. ' + selectedCourt.message;
+
+                    selectedCourt.players.forEach(function (name) {
                         const item = document.createElement('li');
                         item.textContent = name;
                         rosterPlayers.appendChild(item);
                     });
-                    if (!result.players.length) {
+                    if (pendingCount > 0) {
+                        const pendingHeading = document.createElement('li');
+                        pendingHeading.textContent = 'Your booking (not yet confirmed):';
+                        rosterPlayers.appendChild(pendingHeading);
+                        const hostItem = document.createElement('li');
+                        hostItem.textContent = pendingHost || 'Booking host';
+                        rosterPlayers.appendChild(hostItem);
+                        pendingPlayers.forEach(function (name) {
+                            const item = document.createElement('li');
+                            item.textContent = name;
+                            rosterPlayers.appendChild(item);
+                        });
+                        if (!selectedCourt.available) {
+                            rosterStatus.textContent = 'Your group cannot join this court: ' + selectedCourt.message;
+                        } else {
+                            const projectedCount = selectedCourt.players_booked + pendingCount;
+                            const spotsAfterBooking = Math.max(0, selectedCourt.max_players - projectedCount);
+                            rosterStatus.textContent = spotsAfterBooking
+                                + ' spot' + (spotsAfterBooking === 1 ? '' : 's') + ' will remain after your booking is confirmed.';
+                        }
+                    } else if (!selectedCourt.players.length) {
                         const item = document.createElement('li');
                         item.textContent = 'Be the first to join!';
                         rosterPlayers.appendChild(item);
                     }
                 } catch (error) {
                     if (error.name !== 'AbortError') {
-                        rosterStatus.textContent = 'Players could not be loaded. Please try again.';
+                        if (courtInput.value) {
+                            rosterStatus.textContent = 'Players could not be loaded. Please try again.';
+                        }
                     }
                 }
             }, 200);
@@ -159,6 +209,7 @@ document.addEventListener('DOMContentLoaded', function () {
         [dateInput, slotInput, courtInput].forEach(function (input) {
             input.addEventListener('change', updateCourtRoster);
         });
+        openPlayForm.querySelector('[name="host_name"]').addEventListener('input', updateCourtRoster);
         openPlayForm.querySelector('[data-add-player]').addEventListener('click', function () {
             window.setTimeout(updateCourtRoster, 0);
         });
