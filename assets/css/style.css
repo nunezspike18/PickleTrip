@@ -145,7 +145,7 @@ textarea {
 
 .hero-grid {
     display: grid;
-    grid-template-columns: 1.2fr 0.8fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 40px;
     align-items: center;
 }
@@ -523,37 +523,37 @@ textarea {
     color: var(--text);
 }
 
-.availability-context {
-    margin: -4px 0 12px;
+.court-roster {
+    margin-top: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.court-roster[hidden] {
+    display: none;
+}
+
+.court-roster strong {
+    color: var(--text);
+}
+
+.court-roster p {
+    margin: 8px 0;
     color: var(--muted);
-    font-size: 0.9rem;
     line-height: 1.5;
 }
 
-.court-availability-state {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    text-align: right;
+.court-roster ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: var(--text);
+    line-height: 1.6;
 }
 
-.court-availability-status {
-    color: var(--muted);
-}
-
-.court-availability-status.is-available {
-    color: var(--lime);
-}
-
-.court-availability-status.is-unavailable {
-    color: #ff9aaf;
-}
-
-.court-availability-state small {
-    color: var(--muted);
-    font-size: 0.78rem;
-    line-height: 1.4;
+.court-roster li + li {
+    margin-top: 3px;
 }
 
 .alert {

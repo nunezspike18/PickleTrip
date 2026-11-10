@@ -386,6 +386,45 @@ function courtHasAvailability(
     return ['available' => true, 'message' => 'Court is available.'];
 }
 
+function getOpenPlayRoster(int $courtId, string $date, string $startTime, string $endTime): array
+{
+    $pdo = getPdo();
+    $stmt = $pdo->prepare("SELECT id, host_name, player_names, players_count, start_time, end_time FROM bookings WHERE court_id = ? AND booking_date = ? AND booking_type = 'open_play' AND status = 'confirmed' ORDER BY id ASC");
+    $stmt->execute([$courtId, $date]);
+
+    $players = [];
+    $playersBooked = 0;
+    $targetStart = timeToMinutes($startTime);
+    $targetEnd = timeToMinutes($endTime);
+    if ($targetEnd <= $targetStart) {
+        $targetEnd += 24 * 60;
+    }
+
+    foreach ($stmt->fetchAll() as $booking) {
+        $bookingStart = timeToMinutes($booking['start_time']);
+        $bookingEnd = timeToMinutes($booking['end_time']);
+        if ($bookingEnd <= $bookingStart) {
+            $bookingEnd += 24 * 60;
+        }
+        if ($bookingStart !== $targetStart || $bookingEnd !== $targetEnd) {
+            continue;
+        }
+
+        $playersBooked += (int) $booking['players_count'];
+        $players[] = $booking['host_name'];
+        $additionalPlayers = getBookingPlayers((int) $booking['id']);
+        if (!$additionalPlayers) {
+            $additionalPlayers = parsePlayerNames(explode(',', (string) $booking['player_names']));
+        }
+        array_push($players, ...$additionalPlayers);
+    }
+
+    return [
+        'players_booked' => $playersBooked,
+        'players' => array_values(array_unique(array_filter($players, static fn ($name) => trim((string) $name) !== ''))),
+    ];
+}
+
 function timeToMinutes(string $time): int
 {
     $parts = explode(':', $time);

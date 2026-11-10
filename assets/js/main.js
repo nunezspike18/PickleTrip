@@ -76,106 +76,99 @@ document.addEventListener('DOMContentLoaded', function () {
     if (openPlayForm) {
         const dateInput = openPlayForm.querySelector('[name="booking_date"]');
         const slotInput = openPlayForm.querySelector('[name="slot_choice"]');
+        const courtInput = openPlayForm.querySelector('[name="court_id"]');
         const playerList = openPlayForm.querySelector('#open-play-player-list');
-        const context = document.querySelector('[data-availability-context]');
-        let availabilityController = null;
+        const rosterPanel = openPlayForm.querySelector('#open-play-court-roster');
+        const rosterTitle = rosterPanel.querySelector('[data-roster-title]');
+        const rosterStatus = rosterPanel.querySelector('[data-roster-status]');
+        const rosterPlayers = rosterPanel.querySelector('[data-roster-players]');
+        let rosterController = null;
         let updateTimeout = null;
 
-        function updateCourtAvailability() {
+        function updateCourtRoster() {
             window.clearTimeout(updateTimeout);
             updateTimeout = window.setTimeout(async function () {
+                if (rosterController) {
+                    rosterController.abort();
+                    rosterController = null;
+                }
+
+                if (!courtInput.value) {
+                    rosterPanel.hidden = true;
+                    return;
+                }
+
+                rosterPanel.hidden = false;
+                rosterTitle.textContent = courtInput.options[courtInput.selectedIndex].text.split(' - ')[0];
+                rosterPlayers.replaceChildren();
+
                 if (!dateInput.value || !slotInput.value) {
-                    if (context) {
-                        context.textContent = 'Choose a booking date and time slot to check availability for your player list.';
-                    }
-                    document.querySelectorAll('[data-availability-court]').forEach(function (row) {
-                        const status = row.querySelector('[data-court-status]');
-                        const detail = row.querySelector('[data-court-detail]');
-                        if (status) {
-                            status.textContent = 'Choose a slot';
-                            status.className = 'court-availability-status';
-                        }
-                        if (detail) {
-                            detail.textContent = 'Select a date and time';
-                        }
-                    });
+                    rosterStatus.textContent = 'Choose a booking date and time slot to see who has joined this court.';
                     return;
                 }
 
                 const playerNames = Array.from(playerList.querySelectorAll('input[name="other_players[]"]'))
                     .map(function (input) { return input.value.trim(); })
                     .filter(function (name, index, names) { return name !== '' && names.indexOf(name) === index; });
-                const playersCount = playerNames.length + 1;
+                const playersCount = Math.min(12, playerNames.length + 1);
                 const params = new URLSearchParams({
                     booking_date: dateInput.value,
                     slot_choice: slotInput.value,
+                    court_id: courtInput.value,
                     players_count: String(playersCount)
                 });
 
-                if (availabilityController) {
-                    availabilityController.abort();
-                }
-                availabilityController = new AbortController();
-                if (context) {
-                    context.textContent = 'Checking courts for ' + playersCount + (playersCount === 1 ? ' player...' : ' players...');
-                }
+                rosterController = new AbortController();
+                rosterStatus.textContent = 'Loading players for this court...';
 
                 try {
                     const response = await fetch('availability.php?' + params.toString(), {
                         headers: { 'Accept': 'application/json' },
                         cache: 'no-store',
-                        signal: availabilityController.signal
+                        signal: rosterController.signal
                     });
                     const result = await response.json();
                     if (!response.ok) {
-                        throw new Error(result.error || 'Could not check court availability.');
+                        throw new Error(result.error || 'Could not load players for this court.');
                     }
 
-                    result.courts.forEach(function (court) {
-                        const row = document.querySelector('[data-availability-court="' + court.id + '"]');
-                        if (!row) {
-                            return;
-                        }
-                        const status = row.querySelector('[data-court-status]');
-                        const detail = row.querySelector('[data-court-detail]');
-                        if (status) {
-                            status.textContent = court.available ? 'Available' : 'Unavailable';
-                            status.className = 'court-availability-status ' + (court.available ? 'is-available' : 'is-unavailable');
-                        }
-                        if (detail) {
-                            detail.textContent = court.available
-                                ? court.players_remaining + ' spot' + (court.players_remaining === 1 ? '' : 's') + ' left'
-                                : court.message;
-                        }
+                    const selectedSlot = slotInput.options[slotInput.selectedIndex].text;
+                    rosterTitle.textContent = result.court_name + ' — ' + result.players_booked + '/' + result.max_players
+                        + ' players booked for ' + dateInput.value + ' (' + selectedSlot + ')';
+                    rosterStatus.textContent = result.players.length
+                        ? result.players_remaining + ' spot' + (result.players_remaining === 1 ? '' : 's') + ' remaining. ' + result.message
+                        : 'No players booked for this court and time yet. ' + result.message;
+                    result.players.forEach(function (name) {
+                        const item = document.createElement('li');
+                        item.textContent = name;
+                        rosterPlayers.appendChild(item);
                     });
-
-                    const availableCount = result.courts.filter(function (court) { return court.available; }).length;
-                    if (context) {
-                        context.textContent = availableCount
-                            ? availableCount + ' court' + (availableCount === 1 ? '' : 's') + ' available for ' + playersCount + (playersCount === 1 ? ' player.' : ' players.')
-                            : 'No courts available for ' + playersCount + (playersCount === 1 ? ' player.' : ' players.') + ' at this time.';
+                    if (!result.players.length) {
+                        const item = document.createElement('li');
+                        item.textContent = 'Be the first to join!';
+                        rosterPlayers.appendChild(item);
                     }
                 } catch (error) {
-                    if (error.name !== 'AbortError' && context) {
-                        context.textContent = 'Availability could not be checked. Please try again.';
+                    if (error.name !== 'AbortError') {
+                        rosterStatus.textContent = 'Players could not be loaded. Please try again.';
                     }
                 }
             }, 200);
         }
 
-        [dateInput, slotInput].forEach(function (input) {
-            input.addEventListener('change', updateCourtAvailability);
+        [dateInput, slotInput, courtInput].forEach(function (input) {
+            input.addEventListener('change', updateCourtRoster);
         });
         openPlayForm.querySelector('[data-add-player]').addEventListener('click', function () {
-            window.setTimeout(updateCourtAvailability, 0);
+            window.setTimeout(updateCourtRoster, 0);
         });
-        playerList.addEventListener('input', updateCourtAvailability);
+        playerList.addEventListener('input', updateCourtRoster);
         playerList.addEventListener('click', function (event) {
             if (event.target.closest('[data-remove-player]')) {
-                window.setTimeout(updateCourtAvailability, 0);
+                window.setTimeout(updateCourtRoster, 0);
             }
         });
-        updateCourtAvailability();
+        updateCourtRoster();
     }
 
     document.querySelectorAll('[data-print-booking]').forEach(function (button) {
