@@ -114,7 +114,7 @@ $recentBookings = getRecentBookings(10, true);
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pickle Trip | Play. Book. Enjoy!</title>
     <meta name="description" content="Book open play sessions and rent pickleball courts with Pickle Trip." />
-    <link rel="stylesheet" href="assets/css/style.css?v=2" />
+    <link rel="stylesheet" href="assets/css/style.css?v=3" />
 </head>
 <body>
     <header class="site-header">
@@ -154,10 +154,16 @@ $recentBookings = getRecentBookings(10, true);
                 <div class="hero-panel">
                     <div class="panel-mini">
                         <div class="status-pill available" style="margin-bottom: 16px;">Court Availability</div>
+                        <p class="availability-context" data-availability-context aria-live="polite">
+                            Choose a booking date and time slot to check availability for your player list.
+                        </p>
                         <?php foreach ($overview as $court): ?>
-                            <div class="summary-row" style="padding: 10px 0;">
+                            <div class="summary-row court-availability-row" data-availability-court="<?= (int) $court['id'] ?>" style="padding: 10px 0;">
                                 <span><?= htmlspecialchars($court['name']) ?></span>
-                                <strong><?= htmlspecialchars($court['capacityText']) ?></strong>
+                                <span class="court-availability-state">
+                                    <strong class="court-availability-status" data-court-status>Choose a slot</strong>
+                                    <small data-court-detail>Up to <?= (int) $court['max_players'] ?> players</small>
+                                </span>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -494,6 +500,6 @@ $recentBookings = getRecentBookings(10, true);
         </div>
     </footer>
 
-    <script src="assets/js/main.js?v=2"></script>
+    <script src="assets/js/main.js?v=3"></script>
 </body>
 </html>

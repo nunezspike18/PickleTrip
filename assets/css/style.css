@@ -523,6 +523,39 @@ textarea {
     color: var(--text);
 }
 
+.availability-context {
+    margin: -4px 0 12px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.court-availability-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    text-align: right;
+}
+
+.court-availability-status {
+    color: var(--muted);
+}
+
+.court-availability-status.is-available {
+    color: var(--lime);
+}
+
+.court-availability-status.is-unavailable {
+    color: #ff9aaf;
+}
+
+.court-availability-state small {
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
 .alert {
     margin-bottom: 18px;
     padding: 1rem 1.1rem;

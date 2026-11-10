@@ -353,14 +353,34 @@ function courtHasAvailability(
         }
 
         if ($startMinute < $existingEnd && $existingStart < $endMinute) {
-            return ['available' => false, 'message' => 'This court is already booked for the selected date and time.'];
+            return [
+                'available' => false,
+                'message' => 'This court is already booked for the selected date and time.',
+                'players_booked' => $openPlayPlayers,
+                'players_remaining' => max(0, $maxPlayers - $openPlayPlayers),
+            ];
         }
     }
 
     if ($bookingType === 'open_play') {
-        if ($openPlayPlayers + $playersToAdd > $maxPlayers) {
-            return ['available' => false, 'message' => 'This open play session has reached the court player limit.'];
+        $playersRemaining = max(0, $maxPlayers - $openPlayPlayers);
+        if ($playersToAdd > $playersRemaining) {
+            return [
+                'available' => false,
+                'message' => $playersRemaining === 0
+                    ? 'This open play session is full.'
+                    : 'Only ' . $playersRemaining . ' spot' . ($playersRemaining === 1 ? '' : 's') . ' left in this open play session.',
+                'players_booked' => $openPlayPlayers,
+                'players_remaining' => $playersRemaining,
+            ];
         }
+
+        return [
+            'available' => true,
+            'message' => 'Court is available.',
+            'players_booked' => $openPlayPlayers,
+            'players_remaining' => $playersRemaining,
+        ];
     }
 
     return ['available' => true, 'message' => 'Court is available.'];
