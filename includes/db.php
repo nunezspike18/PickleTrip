@@ -352,23 +352,22 @@ function courtHasAvailability(
     return ['available' => true, 'message' => 'Court is available.'];
 }
 
-function getOpenPlayRoster(int $courtId, string $date, string $startTime, string $endTime): array
+function getOpenPlayPlayerCount(int $courtId, string $date, string $startTime, string $endTime): int
 {
     $bookings = supabaseRequest('GET', 'bookings', [
-        'select' => 'id,host_name,player_names,players_count,start_time,end_time',
+        'select' => 'players_count,start_time,end_time',
         'court_id' => 'eq.' . $courtId,
         'booking_date' => 'eq.' . $date,
         'booking_type' => 'eq.open_play',
         'status' => 'eq.confirmed',
-        'order' => 'id.asc',
     ]);
 
-    $matchingBookings = [];
     $targetStart = timeToMinutes($startTime);
     $targetEnd = timeToMinutes($endTime);
     if ($targetEnd <= $targetStart) {
         $targetEnd += 24 * 60;
     }
+    $playersBooked = 0;
     foreach ($bookings as $booking) {
         $bookingStart = timeToMinutes($booking['start_time']);
         $bookingEnd = timeToMinutes($booking['end_time']);
@@ -376,41 +375,11 @@ function getOpenPlayRoster(int $courtId, string $date, string $startTime, string
             $bookingEnd += 24 * 60;
         }
         if ($bookingStart === $targetStart && $bookingEnd === $targetEnd) {
-            $matchingBookings[] = $booking;
+            $playersBooked += (int) $booking['players_count'];
         }
     }
 
-    $playersByBooking = [];
-    if ($matchingBookings) {
-        $bookingIds = array_map(static fn (array $booking): string => (string) (int) $booking['id'], $matchingBookings);
-        $playerRows = supabaseRequest('GET', 'booking_players', [
-            'select' => 'booking_id,player_name',
-            'booking_id' => 'in.(' . implode(',', $bookingIds) . ')',
-            'order' => 'id.asc',
-        ]);
-        foreach ($playerRows as $player) {
-            $playersByBooking[(int) $player['booking_id']][] = $player['player_name'];
-        }
-    }
-
-    $players = [];
-    $playersBooked = 0;
-    foreach ($matchingBookings as $booking) {
-        $bookingPlayers = [$booking['host_name']];
-        $additionalPlayers = $playersByBooking[(int) $booking['id']] ?? parsePlayerNames(explode(',', (string) $booking['player_names']));
-        array_push($bookingPlayers, ...$additionalPlayers);
-        $bookingPlayerCount = max((int) $booking['players_count'], count($bookingPlayers));
-        $playersBooked += $bookingPlayerCount;
-        array_push($players, ...$bookingPlayers);
-        for ($missingNames = count($bookingPlayers); $missingNames < $bookingPlayerCount; $missingNames++) {
-            $players[] = 'Player name not provided';
-        }
-    }
-
-    return [
-        'players_booked' => $playersBooked,
-        'players' => array_values(array_filter($players, static fn ($name): bool => trim((string) $name) !== '')),
-    ];
+    return $playersBooked;
 }
 
 function timeToMinutes(string $time): int

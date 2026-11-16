@@ -38,17 +38,16 @@ foreach (getCourtList() as $court) {
         $playersCount,
         $maxPlayers
     );
-    $roster = getOpenPlayRoster($courtId, $date, $startTime, $endTime);
+    $playersBooked = getOpenPlayPlayerCount($courtId, $date, $startTime, $endTime);
 
     $courts[] = [
         'id' => $courtId,
         'name' => $court['name'],
         'available' => $courtAvailability['available'],
         'message' => $courtAvailability['message'],
-        'players_booked' => $roster['players_booked'],
+        'players_booked' => $playersBooked,
         'players_remaining' => $courtAvailability['players_remaining'] ?? $maxPlayers,
         'max_players' => $maxPlayers,
-        'players' => $roster['players'],
     ];
 }
 

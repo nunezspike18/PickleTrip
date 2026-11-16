@@ -182,7 +182,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const submitButton = openPlayForm.querySelector('button[type="submit"]');
         const rosterTitle = rosterPanel.querySelector('[data-roster-title]');
         const rosterStatus = rosterPanel.querySelector('[data-roster-status]');
-        const rosterPlayers = rosterPanel.querySelector('[data-roster-players]');
         let rosterController = null;
         let updateTimeout = null;
 
@@ -194,9 +193,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     rosterController.abort();
                     rosterController = null;
                 }
-
                 rosterPanel.hidden = !courtInput.value;
-                rosterPlayers.replaceChildren();
+                rosterPanel.hidden = !courtInput.value;
 
                 if (!dateInput.value || !slotInput.value) {
                     Array.from(courtInput.options).forEach(function (option) {
@@ -259,46 +257,17 @@ document.addEventListener('DOMContentLoaded', function () {
                     submitButton.disabled = !selectedCourt.available;
 
                     const selectedSlot = slotInput.options[slotInput.selectedIndex].text;
-                    const pendingHost = (openPlayForm.querySelector('[name="host_name"]')?.value || '').trim();
                     const pendingPlayers = playerNames;
-                    const pendingCount = pendingHost || pendingPlayers.length
-                        ? 1 + playerNames.length
-                        : 0;
+                    const pendingCount = 1 + pendingPlayers.length;
                     rosterTitle.textContent = selectedCourt.name + ' — ' + selectedCourt.players_booked + '/' + selectedCourt.max_players
                         + ' booked for ' + dateInput.value + ' (' + selectedSlot + ')';
-                    rosterStatus.textContent = selectedCourt.players.length
-                        ? selectedCourt.players_remaining + ' spot' + (selectedCourt.players_remaining === 1 ? '' : 's') + ' remaining. ' + selectedCourt.message
-                        : 'No players booked for this court and time yet. ' + selectedCourt.message;
-
-                    selectedCourt.players.forEach(function (name) {
-                        const item = document.createElement('li');
-                        item.textContent = name;
-                        rosterPlayers.appendChild(item);
-                    });
-                    if (pendingCount > 0) {
-                        const pendingHeading = document.createElement('li');
-                        pendingHeading.textContent = 'Your booking (not yet confirmed):';
-                        rosterPlayers.appendChild(pendingHeading);
-                        const hostItem = document.createElement('li');
-                        hostItem.textContent = pendingHost || 'Booking host';
-                        rosterPlayers.appendChild(hostItem);
-                        pendingPlayers.forEach(function (name) {
-                            const item = document.createElement('li');
-                            item.textContent = name;
-                            rosterPlayers.appendChild(item);
-                        });
-                        if (!selectedCourt.available) {
-                            rosterStatus.textContent = 'Your group cannot join this court: ' + selectedCourt.message;
-                        } else {
-                            const projectedCount = selectedCourt.players_booked + pendingCount;
-                            const spotsAfterBooking = Math.max(0, selectedCourt.max_players - projectedCount);
-                            rosterStatus.textContent = spotsAfterBooking
-                                + ' spot' + (spotsAfterBooking === 1 ? '' : 's') + ' will remain after your booking is confirmed.';
-                        }
-                    } else if (!selectedCourt.players.length) {
-                        const item = document.createElement('li');
-                        item.textContent = 'Be the first to join!';
-                        rosterPlayers.appendChild(item);
+                    if (!selectedCourt.available) {
+                        rosterStatus.textContent = 'Your group cannot join this court: ' + selectedCourt.message;
+                    } else {
+                        const projectedCount = selectedCourt.players_booked + pendingCount;
+                        const spotsAfterBooking = Math.max(0, selectedCourt.max_players - projectedCount);
+                        rosterStatus.textContent = spotsAfterBooking
+                            + ' spot' + (spotsAfterBooking === 1 ? '' : 's') + ' will remain after your booking is confirmed.';
                     }
                 } catch (error) {
                     if (error.name !== 'AbortError') {

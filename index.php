@@ -31,11 +31,15 @@ function handleBookingSubmission(array $postData): array
         return ['success' => false, 'message' => 'Choose a valid booking date that is today or later.'];
     }
 
-    if ($hostName === '' || $contactNumber === '' || strlen($contactNumber) > 50) {
-        return ['success' => false, 'message' => 'Please provide the booking host name and a valid contact number.'];
+    if ($hostName === '') {
+        return ['success' => false, 'message' => 'Please provide the booking host name.'];
     }
 
-    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    if ($bookingType === 'court_rental' && ($contactNumber === '' || strlen($contactNumber) > 50)) {
+        return ['success' => false, 'message' => 'Please provide a valid contact number for the court rental.'];
+    }
+
+    if ($bookingType === 'court_rental' && $email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         return ['success' => false, 'message' => 'Please provide a valid email address.'];
     }
 
@@ -199,13 +203,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $overview = getCourtAvailabilityToday();
-$recentBookings = getRecentBookings(10, true);
 $initialTab = 'home';
 $bookingTab = $bookingResult['booking_type'] ?? $submittedBookingType;
 if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
     $initialTab = $bookingTab;
-} elseif ($paymentMessage !== '' || (($_POST['action'] ?? '') === 'submit_payment_reference' && $errorMessage !== '')) {
-    $initialTab = 'my-bookings';
 }
 ?>
 <!DOCTYPE html>
@@ -232,7 +233,6 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
                 <a href="#open-play">Open Play</a>
                 <a href="#court-rental">Court Rental</a>
                 <a href="#courts">Courts</a>
-                <a href="#my-bookings">My Bookings</a>
                 <a href="#about">About</a>
                 <a href="#contact">Contact</a>
             </nav>
@@ -333,29 +333,15 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
                                     <div class="court-roster" id="open-play-court-roster" aria-live="polite" hidden>
                                         <strong data-roster-title></strong>
                                         <p data-roster-status></p>
-                                        <ul data-roster-players></ul>
                                     </div>
                                 </div>
                                 <div class="form-field">
                                     <label for="op_host">Host name</label>
                                     <input id="op_host" type="text" name="host_name" placeholder="Full name" required />
                                 </div>
-                                <div class="form-field">
-                                    <label for="op_phone">Contact number</label>
-                                    <input id="op_phone" type="tel" name="contact_number" placeholder="09xx xxx xxxx" required />
-                                </div>
-                                <div class="form-field">
-                                    <label for="op_email">Email (optional)</label>
-                                    <input id="op_email" type="email" name="email" placeholder="you@example.com" />
-                                </div>
                                 <div class="form-field full">
                                     <label>Additional players</label>
-                                    <div id="open-play-player-list" class="player-stack">
-                                        <div class="player-row">
-                                            <input type="text" name="other_players[]" placeholder="Player name" />
-                                            <button type="button" class="small-button" data-remove-player>Remove</button>
-                                        </div>
-                                    </div>
+                                    <div id="open-play-player-list" class="player-stack"></div>
                                     <p class="player-count" data-player-count aria-live="polite">Players in this booking: 1 / 12</p>
                                     <button type="button" class="add-player" data-add-player>Add another player</button>
                                 </div>
@@ -528,57 +514,6 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
             </div>
         </section>
 
-        <section class="section" id="my-bookings" data-tab-panel="my-bookings" <?= $initialTab !== 'my-bookings' ? 'hidden' : '' ?>>
-            <div class="container">
-                <div class="section-head">
-                    <h2>My bookings</h2>
-                </div>
-                <div class="card report-box">
-                    <?php if ($recentBookings): ?>
-                        <div class="table-wrap">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Ref</th>
-                                        <th>Type</th>
-                                        <th>Host</th>
-                                        <th>Court</th>
-                                        <th>Date</th>
-                                        <th>Time</th>
-                                        <th>Players</th>
-                                        <th>Fee</th>
-                                        <th>Payment</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($recentBookings as $booking): ?>
-                                        <tr>
-                                            <td><strong><?= htmlspecialchars($booking['booking_reference']) ?></strong></td>
-                                            <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $booking['booking_type']))) ?></td>
-                                            <td><?= htmlspecialchars($booking['host_name']) ?></td>
-                                            <td><?= htmlspecialchars($booking['court_name'] ?? 'Court') ?></td>
-                                            <td><?= htmlspecialchars(formatDate($booking['booking_date'])) ?></td>
-                                            <td><?= htmlspecialchars(formatTime($booking['start_time']) . ' - ' . formatTime($booking['end_time'])) ?></td>
-                                            <td>
-                                                <strong><?= (int) $booking['players_count'] ?> total</strong>
-                                                <div class="muted-note">
-                                                    <?= htmlspecialchars(implode(', ', array_filter([$booking['host_name'], $booking['player_names']]))) ?>
-                                                </div>
-                                            </td>
-                                            <td><?= htmlspecialchars(formatMoney($booking['payment_amount'])) ?></td>
-                                            <td><?= htmlspecialchars(ucfirst($booking['payment_status'])) ?></td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php else: ?>
-                        <p class="muted-note">No recent bookings yet. Reserve your first pickleball session to get started.</p>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </section>
-
         <?php if ($bookingResult && $bookingResult['success']): ?>
             <section class="section" id="booking-confirmation" data-tab-panel="<?= htmlspecialchars($bookingResult['booking_type']) ?>" <?= $initialTab !== $bookingResult['booking_type'] ? 'hidden' : '' ?>>
                 <div class="container">
@@ -588,7 +523,9 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
                             <div class="summary-row"><span>Booking reference</span><strong><?= htmlspecialchars($bookingResult['reference']) ?></strong></div>
                             <div class="summary-row"><span>Booking type</span><strong><?= htmlspecialchars(ucwords(str_replace('_', ' ', $bookingResult['booking_type']))) ?></strong></div>
                             <div class="summary-row"><span>Host name</span><strong><?= htmlspecialchars($bookingResult['host_name']) ?></strong></div>
-                            <div class="summary-row"><span>Contact</span><strong><?= htmlspecialchars($bookingResult['contact_number']) ?></strong></div>
+                            <?php if (!empty($bookingResult['contact_number'])): ?>
+                                <div class="summary-row"><span>Contact</span><strong><?= htmlspecialchars($bookingResult['contact_number']) ?></strong></div>
+                            <?php endif; ?>
                             <div class="summary-row"><span>Date</span><strong><?= htmlspecialchars(formatDate($bookingResult['booking_date'])) ?></strong></div>
                             <div class="summary-row"><span>Time</span><strong><?= htmlspecialchars(formatTime($bookingResult['start_time']) . ' - ' . formatTime($bookingResult['end_time'])) ?></strong></div>
                             <div class="summary-row"><span>Court</span><strong><?= htmlspecialchars($bookingResult['court_name']) ?></strong></div>
