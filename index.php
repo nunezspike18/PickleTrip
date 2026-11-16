@@ -370,7 +370,7 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
                                 </div>
                             </div>
                             <div class="form-actions">
-                                <button type="submit" class="button-primary">I paid — submit open-play booking</button>
+                                <button type="submit" class="button-primary">Confirm</button>
                             </div>
                         </form>
                     </div>
