@@ -112,7 +112,7 @@ $recent = getRecentBookings(5);
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Admin Dashboard | Pickle Trip</title>
-    <link rel="stylesheet" href="/assets/css/style.css" />
+    <link rel="stylesheet" href="/assets/css/style.css?v=9" />
 </head>
 <body class="admin-shell">
     <div class="admin-layout">
@@ -245,8 +245,6 @@ $recent = getRecentBookings(5);
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Ref</th>
                                     <th>Type</th>
                                     <th>Host</th>
                                     <th>Date</th>
@@ -261,8 +259,6 @@ $recent = getRecentBookings(5);
                             <tbody>
                                 <?php foreach ($allBookings as $booking): ?>
                                     <tr>
-                                        <td><?= (int) $booking['id'] ?></td>
-                                        <td><?= htmlspecialchars($booking['booking_reference']) ?></td>
                                         <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $booking['booking_type']))) ?></td>
                                         <td><?= htmlspecialchars($booking['host_name']) ?></td>
                                         <td><?= htmlspecialchars(formatDate($booking['booking_date'])) ?></td>
@@ -293,7 +289,11 @@ $recent = getRecentBookings(5);
                                                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
                                                         <input type="hidden" name="action" value="delete_open_play_booking" />
                                                         <input type="hidden" name="booking_id" value="<?= (int) $booking['id'] ?>" />
-                                                        <button type="submit" class="button-danger">Delete permanently</button>
+                                                        <button type="submit" class="button-danger icon-button" aria-label="Delete booking permanently" title="Delete booking permanently">
+                                                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                                                <path d="M4 7h16M10 11v6m4-6v6M5 7l1 14h12l1-14M9 7V4h6v3" />
+                                                            </svg>
+                                                        </button>
                                                     </form>
                                                 <?php endif; ?>
                                                 <form method="post" style="display:inline;">

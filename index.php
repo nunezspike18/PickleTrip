@@ -216,7 +216,7 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pickle Trip | Play. Book. Enjoy!</title>
     <meta name="description" content="Book open play sessions and rent pickleball courts with Pickle Trip." />
-    <link rel="stylesheet" href="assets/css/style.css?v=8" />
+    <link rel="stylesheet" href="assets/css/style.css?v=9" />
 </head>
 <body class="public-site" data-initial-tab="<?= htmlspecialchars($initialTab) ?>">
     <header class="site-header">
@@ -240,13 +240,18 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
         </div>
     </header>
 
+    <?php if ($successMessage !== '' || $paymentMessage !== ''): ?>
+        <div class="booking-toast" role="status" aria-live="polite" data-booking-toast>
+            <span class="booking-toast-icon" aria-hidden="true">✓</span>
+            <div class="booking-toast-content">
+                <strong><?= $paymentMessage !== '' ? 'Payment reference submitted' : 'Booking submitted' ?></strong>
+                <p><?= htmlspecialchars($paymentMessage !== '' ? $paymentMessage : $successMessage) ?></p>
+            </div>
+            <button type="button" class="booking-toast-close" aria-label="Dismiss notification" data-dismiss-toast>&times;</button>
+        </div>
+    <?php endif; ?>
+
     <main>
-        <?php if ($successMessage !== ''): ?>
-            <div class="container alert success" role="status"><?= htmlspecialchars($successMessage) ?></div>
-        <?php endif; ?>
-        <?php if ($paymentMessage !== ''): ?>
-            <div class="container alert success" role="status"><?= htmlspecialchars($paymentMessage) ?></div>
-        <?php endif; ?>
         <?php if ($errorMessage !== ''): ?>
             <div class="container alert error" role="alert"><?= htmlspecialchars($errorMessage) ?></div>
         <?php endif; ?>
@@ -605,6 +610,6 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
         </div>
     </footer>
 
-    <script src="assets/js/main.js?v=8"></script>
+    <script src="assets/js/main.js?v=9"></script>
 </body>
 </html>

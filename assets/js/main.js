@@ -1,4 +1,16 @@
 document.addEventListener('DOMContentLoaded', function () {
+    const bookingToast = document.querySelector('[data-booking-toast]');
+    if (bookingToast) {
+        const dismissToast = function () {
+            bookingToast.hidden = true;
+        };
+        const dismissButton = bookingToast.querySelector('[data-dismiss-toast]');
+        if (dismissButton) {
+            dismissButton.addEventListener('click', dismissToast);
+        }
+        window.setTimeout(dismissToast, 8000);
+    }
+
     const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
     const navigationLinks = Array.from(document.querySelectorAll('.nav-links a'));
     const mainContent = document.querySelector('.public-site > main');

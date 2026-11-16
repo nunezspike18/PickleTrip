@@ -701,6 +701,83 @@ textarea {
     color: #ffc5d3;
 }
 
+.booking-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: min(440px, calc(100vw - 40px));
+    padding: 16px;
+    border: 1px solid rgba(45, 212, 191, 0.45);
+    border-radius: 16px;
+    background: rgba(12, 20, 28, 0.96);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.38);
+    color: var(--text);
+    animation: booking-toast-in 180ms ease-out;
+}
+
+.booking-toast[hidden] {
+    display: none;
+}
+
+.booking-toast-icon {
+    display: grid;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 50%;
+    background: rgba(45, 212, 191, 0.16);
+    color: #9ff5ec;
+    font-weight: 800;
+}
+
+.booking-toast-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.booking-toast-content strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.booking-toast-content p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+.booking-toast-close {
+    border: 0;
+    padding: 0 2px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.booking-toast-close:hover {
+    color: var(--text);
+}
+
+@keyframes booking-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 .contact-list,
 .info-grid {
     display: grid;
@@ -879,8 +956,38 @@ td .muted {
 
 .table-actions {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
     flex-wrap: wrap;
+}
+
+.table-actions form {
+    margin: 0;
+}
+
+.table-actions .button-danger:not(.icon-button) {
+    padding: 0.5rem 0.8rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    white-space: nowrap;
+}
+
+.icon-button {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    padding: 0;
+    border-radius: 10px;
+}
+
+.icon-button svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
 }
 
 .small-button {
