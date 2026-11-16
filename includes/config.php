@@ -4,31 +4,27 @@ if (!defined('APP_ROOT')) {
     define('APP_ROOT', dirname(__DIR__));
 }
 
-if (!defined('DB_TYPE')) {
-    define('DB_TYPE', getenv('PICKLE_DB_TYPE') ?: 'mysql');
+if (!defined('SUPABASE_URL')) {
+    define('SUPABASE_URL', rtrim((string) getenv('PICKLE_SUPABASE_URL'), '/'));
 }
 
-if (!defined('DB_HOST')) {
-    define('DB_HOST', getenv('PICKLE_DB_HOST') ?: '127.0.0.1');
+if (!defined('SUPABASE_SERVICE_ROLE_KEY')) {
+    define('SUPABASE_SERVICE_ROLE_KEY', (string) getenv('PICKLE_SUPABASE_SERVICE_ROLE_KEY'));
 }
 
-if (!defined('DB_NAME')) {
-    define('DB_NAME', getenv('PICKLE_DB_NAME') ?: 'pickle_trip_app');
+if (!defined('GCASH_NUMBER')) {
+    define('GCASH_NUMBER', (string) getenv('PICKLE_GCASH_NUMBER'));
 }
 
-if (!defined('DB_USER')) {
-    define('DB_USER', getenv('PICKLE_DB_USER') ?: 'root');
+if (!defined('OPEN_PLAY_PRICE')) {
+    define('OPEN_PLAY_PRICE', max(0, (int) (getenv('PICKLE_OPEN_PLAY_PRICE') ?: 100)));
 }
 
-if (!defined('DB_PASS')) {
-    define('DB_PASS', getenv('PICKLE_DB_PASS') ?: '');
-}
-
-if (!defined('DB_PATH')) {
-    define('DB_PATH', APP_ROOT . '/storage/pickletrip.sqlite');
+if (!defined('COURT_RENTAL_HOURLY_PRICE')) {
+    define('COURT_RENTAL_HOURLY_PRICE', max(0, (int) (getenv('PICKLE_COURT_RENTAL_HOURLY_PRICE') ?: 250)));
 }
 
 if (!defined('APP_URL')) {
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $_SERVER['SERVER_PORT'] == 443 ? 'https' : 'http';
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443 ? 'https' : 'http';
     define('APP_URL', $protocol . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
 }

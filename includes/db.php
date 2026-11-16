@@ -1,318 +1,284 @@
 <?php
 require_once __DIR__ . '/config.php';
 
-function getPdo(): PDO
+final class SupabaseException extends RuntimeException
 {
-    static $pdo = null;
+    public $status;
+    public $apiCode;
 
-    if ($pdo instanceof PDO) {
-        return $pdo;
+    public function __construct(string $message, int $status = 0, string $apiCode = '', ?Throwable $previous = null)
+    {
+        parent::__construct($message, 0, $previous);
+        $this->status = $status;
+        $this->apiCode = $apiCode;
     }
-
-    $dbType = strtoupper(DB_TYPE);
-    $options = [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ];
-
-    if ($dbType === 'MYSQL' || $dbType === 'MARIADB') {
-        $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-        $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-    } elseif ($dbType === 'SQLITE') {
-        $pdo = new PDO('sqlite:' . DB_PATH, null, null, $options);
-    } else {
-        throw new InvalidArgumentException('Unsupported database type: ' . DB_TYPE);
-    }
-
-    initDatabase($pdo);
-    return $pdo;
 }
 
-function initDatabase(PDO $pdo): void
+function supabaseRequest(string $method, string $resource, array $query = [], ?array $body = null, string $prefer = ''): array
 {
-    if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS courts (
-                id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                max_players INT NOT NULL DEFAULT 12,
-                status VARCHAR(32) NOT NULL DEFAULT 'available',
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS bookings (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                booking_reference VARCHAR(32) NOT NULL UNIQUE,
-                booking_type VARCHAR(32) NOT NULL,
-                booking_date DATE NOT NULL,
-                start_time TIME NOT NULL,
-                end_time TIME NOT NULL,
-                court_id INT UNSIGNED NOT NULL,
-                host_name VARCHAR(255) NOT NULL,
-                contact_number VARCHAR(50) NOT NULL,
-                email VARCHAR(255) NOT NULL DEFAULT '',
-                player_names TEXT NOT NULL,
-                players_count INT NOT NULL DEFAULT 1,
-                status VARCHAR(32) NOT NULL DEFAULT 'confirmed',
-                notes TEXT NOT NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_bookings_court_schedule (court_id, booking_date, status, start_time, end_time),
-                CONSTRAINT fk_bookings_court FOREIGN KEY (court_id) REFERENCES courts(id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS booking_players (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                booking_id BIGINT UNSIGNED NOT NULL,
-                player_name VARCHAR(255) NOT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS admins (
-                id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(100) NOT NULL UNIQUE,
-                password_hash VARCHAR(255) NOT NULL,
-                full_name VARCHAR(255) NOT NULL,
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-    } else {
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS courts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                max_players INTEGER NOT NULL DEFAULT 12,
-                status TEXT NOT NULL DEFAULT 'available',
-                is_active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        ");
-
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS bookings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                booking_reference TEXT NOT NULL UNIQUE,
-                booking_type TEXT NOT NULL,
-                booking_date TEXT NOT NULL,
-                start_time TEXT NOT NULL,
-                end_time TEXT NOT NULL,
-                court_id INTEGER NOT NULL,
-                host_name TEXT NOT NULL,
-                contact_number TEXT NOT NULL,
-                email TEXT DEFAULT '',
-                player_names TEXT DEFAULT '',
-                players_count INTEGER NOT NULL DEFAULT 1,
-                status TEXT NOT NULL DEFAULT 'confirmed',
-                notes TEXT DEFAULT '',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (court_id) REFERENCES courts(id)
-            )
-        ");
-
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS booking_players (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                booking_id INTEGER NOT NULL,
-                player_name TEXT NOT NULL,
-                FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
-            )
-        ");
-
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS admins (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                full_name TEXT NOT NULL,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        ");
+    if (SUPABASE_URL === '' || SUPABASE_SERVICE_ROLE_KEY === '') {
+        throw new RuntimeException('Supabase is not configured. Set PICKLE_SUPABASE_URL and PICKLE_SUPABASE_SERVICE_ROLE_KEY on the PHP server.');
     }
 
-    $courtCount = (int) $pdo->query('SELECT COUNT(*) FROM courts')->fetchColumn();
-    if ($courtCount === 0) {
-        $courtNames = ['Court 1', 'Court 2', 'Court 3', 'Court 4'];
-        foreach ($courtNames as $courtName) {
-            $stmt = $pdo->prepare("INSERT INTO courts (name, max_players, status, is_active) VALUES (?, 12, 'available', 1)");
-            $stmt->execute([$courtName]);
+    $scheme = strtolower((string) parse_url(SUPABASE_URL, PHP_URL_SCHEME));
+    $host = strtolower((string) parse_url(SUPABASE_URL, PHP_URL_HOST));
+    $isLocalHttp = $scheme === 'http' && in_array($host, ['localhost', '127.0.0.1', '::1'], true);
+    if (($scheme !== 'https' && !$isLocalHttp) || $host === '') {
+        throw new RuntimeException('PICKLE_SUPABASE_URL must be an HTTPS URL (HTTP is allowed only for localhost).');
+    }
+
+    $url = SUPABASE_URL . '/rest/v1/' . ltrim($resource, '/');
+    if ($query) {
+        $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    $headers = [
+        'apikey: ' . SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization: Bearer ' . SUPABASE_SERVICE_ROLE_KEY,
+        'Accept: application/json',
+    ];
+    if ($body !== null) {
+        $headers[] = 'Content-Type: application/json';
+    }
+    if ($prefer !== '') {
+        $headers[] = 'Prefer: ' . $prefer;
+    }
+
+    $options = [
+        'http' => [
+            'method' => strtoupper($method),
+            'header' => implode("\r\n", $headers),
+            'content' => $body === null ? '' : json_encode($body, JSON_THROW_ON_ERROR),
+            'timeout' => 15,
+            'ignore_errors' => true,
+            'follow_location' => 0,
+            'max_redirects' => 0,
+        ],
+    ];
+
+    set_error_handler(static function (int $severity, string $message): bool {
+        throw new ErrorException($message, 0, $severity);
+    });
+    try {
+        $responseBody = file_get_contents($url, false, stream_context_create($options));
+    } catch (ErrorException $error) {
+        throw new SupabaseException('Could not connect to Supabase. Check the URL, server network access, and PHP HTTPS stream support.', 0, '', $error);
+    } finally {
+        restore_error_handler();
+    }
+
+    $status = 0;
+    foreach ($http_response_header ?? [] as $header) {
+        if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $header, $matches)) {
+            $status = (int) $matches[1];
         }
     }
 
-    $adminCount = (int) $pdo->query('SELECT COUNT(*) FROM admins')->fetchColumn();
-    if ($adminCount === 0) {
-        $stmt = $pdo->prepare('INSERT INTO admins (username, password_hash, full_name, is_active) VALUES (?, ?, ?, 1)');
-        $stmt->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT), 'Administrator']);
+    if ($responseBody === false || $status === 0) {
+        throw new SupabaseException('Supabase returned no HTTP response. Check the project URL and server network access.');
     }
+
+    if ($status < 200 || $status >= 300) {
+        $errorData = json_decode($responseBody, true);
+        $message = is_array($errorData) ? (string) ($errorData['message'] ?? $errorData['error_description'] ?? 'Supabase request failed.') : 'Supabase request failed.';
+        $apiCode = is_array($errorData) ? (string) ($errorData['code'] ?? '') : '';
+        throw new SupabaseException($message, $status, $apiCode);
+    }
+
+    if ($responseBody === '') {
+        return [];
+    }
+
+    $data = json_decode($responseBody, true, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($data)) {
+        throw new SupabaseException('Supabase returned an unexpected response format.', $status);
+    }
+    return $data;
 }
 
 function generateReference(): string
 {
-    $prefix = 'PT';
-    $suffix = strtoupper(bin2hex(random_bytes(4)));
-    return $prefix . '-' . $suffix;
+    return 'PT-' . strtoupper(bin2hex(random_bytes(12)));
 }
 
-function sanitizeText(?string $value): string
+function sanitizeText($value): string
 {
-    return trim((string) ($value ?? ''));
+    return is_scalar($value) ? trim((string) $value) : '';
 }
 
 function parsePlayerNames(?array $players): array
 {
     $names = [];
-
-    if (!$players) {
-        return $names;
-    }
-
-    foreach ($players as $player) {
+    foreach ($players ?? [] as $player) {
+        if (!is_scalar($player)) {
+            continue;
+        }
         $name = sanitizeText((string) $player);
         if ($name !== '') {
             $names[] = $name;
         }
     }
-
     return array_values(array_unique($names));
 }
 
 function getCourtList(): array
 {
-    $pdo = getPdo();
-    $stmt = $pdo->query('SELECT * FROM courts WHERE is_active = 1 ORDER BY id ASC');
-    return $stmt->fetchAll();
+    return supabaseRequest('GET', 'courts', [
+        'select' => '*',
+        'is_active' => 'eq.true',
+        'order' => 'id.asc',
+    ]);
 }
 
 function getCourtById(int $courtId): ?array
 {
-    $pdo = getPdo();
-    $stmt = $pdo->prepare('SELECT * FROM courts WHERE id = ? AND is_active = 1 LIMIT 1');
-    $stmt->execute([$courtId]);
-    $court = $stmt->fetch();
-    return $court ?: null;
+    $courts = supabaseRequest('GET', 'courts', [
+        'select' => '*',
+        'id' => 'eq.' . $courtId,
+        'is_active' => 'eq.true',
+        'limit' => '1',
+    ]);
+    return $courts[0] ?? null;
 }
 
 function getCourtAvailabilityToday(): array
 {
-    $pdo = getPdo();
     $today = date('Y-m-d');
     $courts = getCourtList();
-    $overview = [];
+    $bookings = supabaseRequest('GET', 'bookings', [
+        'select' => 'court_id,players_count',
+        'booking_date' => 'eq.' . $today,
+        'status' => 'eq.confirmed',
+    ]);
+    $totals = [];
+    foreach ($bookings as $booking) {
+        $courtId = (int) $booking['court_id'];
+        $totals[$courtId] = ($totals[$courtId] ?? 0) + (int) $booking['players_count'];
+    }
 
+    $overview = [];
     foreach ($courts as $court) {
         $courtId = (int) $court['id'];
-        $countStatement = $pdo->prepare("SELECT COALESCE(SUM(players_count), 0) FROM bookings WHERE court_id = ? AND booking_date = ? AND status = 'confirmed'");
-        $countStatement->execute([$courtId, $today]);
-        $currentTotal = (int) $countStatement->fetchColumn();
-
-        $status = 'Available';
-        if ($currentTotal >= (int) $court['max_players']) {
-            $status = 'Full';
-        } elseif ($currentTotal >= (int) $court['max_players'] * 0.75) {
-            $status = 'Almost Full';
-        }
-
+        $currentTotal = $totals[$courtId] ?? 0;
+        $maxPlayers = (int) $court['max_players'];
+        $status = $currentTotal >= $maxPlayers ? 'Full' : ($currentTotal >= $maxPlayers * 0.75 ? 'Almost Full' : 'Available');
         $overview[] = [
             'id' => $courtId,
             'name' => $court['name'],
-            'capacityText' => $currentTotal . '/' . (int) $court['max_players'],
+            'capacityText' => $currentTotal . '/' . $maxPlayers,
             'currentTotal' => $currentTotal,
             'status' => $status,
-            'max_players' => (int) $court['max_players'],
+            'max_players' => $maxPlayers,
         ];
     }
-
     return $overview;
 }
 
 function getDashboardStats(): array
 {
-    $pdo = getPdo();
+    $bookings = supabaseRequest('GET', 'bookings', ['select' => 'booking_date,booking_type,players_count,court_id,status']);
+    $courts = getCourtList();
     $today = date('Y-m-d');
+    $totalPlayers = 0;
+    $todayBookings = 0;
+    $openPlayBookings = 0;
+    $courtRentalBookings = 0;
+    $playersByCourt = [];
 
-    $totalBookings = (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn();
-    $totalPlayers = (int) $pdo->query('SELECT COALESCE(SUM(players_count), 0) FROM bookings')->fetchColumn();
-    $availableCourts = (int) $pdo->query('SELECT COUNT(*) FROM courts WHERE is_active = 1')->fetchColumn();
+    foreach ($bookings as $booking) {
+        $totalPlayers += (int) $booking['players_count'];
+        if ($booking['booking_date'] === $today) {
+            $todayBookings++;
+        }
+        if ($booking['booking_type'] === 'open_play') {
+            $openPlayBookings++;
+        } elseif ($booking['booking_type'] === 'court_rental') {
+            $courtRentalBookings++;
+        }
+        if ($booking['status'] === 'confirmed' && $booking['booking_date'] === $today) {
+            $courtId = (int) $booking['court_id'];
+            $playersByCourt[$courtId] = ($playersByCourt[$courtId] ?? 0) + (int) $booking['players_count'];
+        }
+    }
 
-    $fullyBookedStatement = $pdo->prepare("SELECT COUNT(*) FROM courts WHERE is_active = 1 AND id IN (SELECT court_id FROM bookings WHERE booking_date = ? AND status = 'confirmed' GROUP BY court_id HAVING SUM(players_count) >= 12)");
-    $fullyBookedStatement->execute([$today]);
-    $fullyBookedCourts = (int) $fullyBookedStatement->fetchColumn();
-
-    $todaysBookings = (int) $pdo->query('SELECT COUNT(*) FROM bookings WHERE booking_date = ' . $pdo->quote($today))->fetchColumn();
-    $openPlayBookings = (int) $pdo->query("SELECT COUNT(*) FROM bookings WHERE booking_type = 'open_play'")->fetchColumn();
-    $courtRentalBookings = (int) $pdo->query("SELECT COUNT(*) FROM bookings WHERE booking_type = 'court_rental'")->fetchColumn();
+    $fullyBookedCourts = 0;
+    foreach ($courts as $court) {
+        if (($playersByCourt[(int) $court['id']] ?? 0) >= (int) $court['max_players']) {
+            $fullyBookedCourts++;
+        }
+    }
 
     return [
-        'totalBookings' => $totalBookings,
+        'totalBookings' => count($bookings),
         'totalPlayers' => $totalPlayers,
-        'availableCourts' => $availableCourts,
+        'availableCourts' => count($courts),
         'fullyBookedCourts' => $fullyBookedCourts,
-        'todaysBookings' => $todaysBookings,
+        'todaysBookings' => $todayBookings,
         'openPlayReservations' => $openPlayBookings,
         'courtRentalReservations' => $courtRentalBookings,
     ];
 }
 
+function normalizeBooking(array $booking): array
+{
+    $court = $booking['courts'] ?? null;
+    if (is_array($court) && isset($court[0])) {
+        $court = $court[0];
+    }
+    $booking['court_name'] = is_array($court) ? ($court['name'] ?? null) : null;
+    unset($booking['courts']);
+    return $booking;
+}
+
 function getRecentBookings(int $limit = 6, bool $confirmedOnly = false): array
 {
-    $pdo = getPdo();
-    $sql = 'SELECT b.*, c.name AS court_name FROM bookings b LEFT JOIN courts c ON c.id = b.court_id';
+    $query = [
+        'select' => '*,courts(name)',
+        'order' => 'created_at.desc',
+        'limit' => (string) max(0, $limit),
+    ];
     if ($confirmedOnly) {
-        $sql .= " WHERE b.status = 'confirmed'";
+        $query['status'] = 'eq.confirmed';
     }
-    $sql .= ' ORDER BY b.created_at DESC LIMIT ?';
-    $stmt = $pdo->prepare($sql);
-    $stmt->bindValue(1, max(0, $limit), PDO::PARAM_INT);
-    $stmt->execute();
-    return $stmt->fetchAll();
+    return array_map('normalizeBooking', supabaseRequest('GET', 'bookings', $query));
 }
 
 function getBookingsForAdmin(string $search = '', string $date = '', string $type = ''): array
 {
-    $pdo = getPdo();
-    $sql = 'SELECT b.*, c.name AS court_name FROM bookings b LEFT JOIN courts c ON c.id = b.court_id WHERE 1 = 1';
-    $params = [];
+    $query = ['select' => '*,courts(name)', 'order' => 'booking_date.desc,start_time.desc'];
+    if ($date !== '') {
+        $query['booking_date'] = 'eq.' . $date;
+    }
+    if ($type !== '') {
+        $query['booking_type'] = 'eq.' . $type;
+    }
+    $bookings = array_map('normalizeBooking', supabaseRequest('GET', 'bookings', $query));
 
     if ($search !== '') {
-        $idCast = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'CHAR' : 'TEXT';
-        $sql .= ' AND (CAST(b.id AS ' . $idCast . ') LIKE ? OR b.host_name LIKE ? OR b.player_names LIKE ?)';
-        $searchTerm = '%' . $search . '%';
-        $params[] = $searchTerm;
-        $params[] = $searchTerm;
-        $params[] = $searchTerm;
+        $needle = function_exists('mb_strtolower') ? mb_strtolower($search) : strtolower($search);
+        $bookings = array_values(array_filter($bookings, static function (array $booking) use ($needle): bool {
+            $haystack = implode(' ', [
+                (string) $booking['id'],
+                (string) $booking['booking_reference'],
+                (string) $booking['host_name'],
+                (string) $booking['player_names'],
+            ]);
+            $haystack = function_exists('mb_strtolower') ? mb_strtolower($haystack) : strtolower($haystack);
+            return strpos($haystack, $needle) !== false;
+        }));
     }
-
-    if ($date !== '') {
-        $sql .= ' AND b.booking_date = ?';
-        $params[] = $date;
-    }
-
-    if ($type !== '') {
-        $sql .= ' AND b.booking_type = ?';
-        $params[] = $type;
-    }
-
-    $sql .= ' ORDER BY b.booking_date DESC, b.start_time DESC';
-
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return $stmt->fetchAll();
+    return $bookings;
 }
 
 function getCourtPlayers(int $courtId, string $bookingDate): int
 {
-    $pdo = getPdo();
-    $stmt = $pdo->prepare("SELECT COALESCE(SUM(players_count), 0) FROM bookings WHERE court_id = ? AND booking_date = ? AND status = 'confirmed'");
-    $stmt->execute([$courtId, $bookingDate]);
-    return (int) $stmt->fetchColumn();
+    $bookings = supabaseRequest('GET', 'bookings', [
+        'select' => 'players_count',
+        'court_id' => 'eq.' . $courtId,
+        'booking_date' => 'eq.' . $bookingDate,
+        'status' => 'eq.confirmed',
+    ]);
+    return array_sum(array_map(static fn (array $booking): int => (int) $booking['players_count'], $bookings));
 }
 
 function courtHasAvailability(
@@ -323,11 +289,13 @@ function courtHasAvailability(
     string $bookingType = '',
     int $playersToAdd = 1,
     int $maxPlayers = 12
-): array
-{
-    $pdo = getPdo();
-    $statement = $pdo->prepare("SELECT booking_type, start_time, end_time, players_count FROM bookings WHERE court_id = ? AND booking_date = ? AND status = 'confirmed'");
-    $statement->execute([$courtId, $date]);
+): array {
+    $bookings = supabaseRequest('GET', 'bookings', [
+        'select' => 'booking_type,start_time,end_time,players_count',
+        'court_id' => 'eq.' . $courtId,
+        'booking_date' => 'eq.' . $date,
+        'status' => 'eq.confirmed',
+    ]);
     $startMinute = timeToMinutes($startTime);
     $endMinute = timeToMinutes($endTime);
     if ($endMinute <= $startMinute) {
@@ -335,7 +303,7 @@ function courtHasAvailability(
     }
 
     $openPlayPlayers = 0;
-    foreach ($statement->fetchAll() as $booking) {
+    foreach ($bookings as $booking) {
         $existingStart = timeToMinutes($booking['start_time']);
         $existingEnd = timeToMinutes($booking['end_time']);
         if ($existingEnd <= $existingStart) {
@@ -374,7 +342,6 @@ function courtHasAvailability(
                 'players_remaining' => $playersRemaining,
             ];
         }
-
         return [
             'available' => true,
             'message' => 'Court is available.',
@@ -382,41 +349,56 @@ function courtHasAvailability(
             'players_remaining' => $playersRemaining,
         ];
     }
-
     return ['available' => true, 'message' => 'Court is available.'];
 }
 
 function getOpenPlayRoster(int $courtId, string $date, string $startTime, string $endTime): array
 {
-    $pdo = getPdo();
-    $stmt = $pdo->prepare("SELECT id, host_name, player_names, players_count, start_time, end_time FROM bookings WHERE court_id = ? AND booking_date = ? AND booking_type = 'open_play' AND status = 'confirmed' ORDER BY id ASC");
-    $stmt->execute([$courtId, $date]);
+    $bookings = supabaseRequest('GET', 'bookings', [
+        'select' => 'id,host_name,player_names,players_count,start_time,end_time',
+        'court_id' => 'eq.' . $courtId,
+        'booking_date' => 'eq.' . $date,
+        'booking_type' => 'eq.open_play',
+        'status' => 'eq.confirmed',
+        'order' => 'id.asc',
+    ]);
 
-    $players = [];
-    $playersBooked = 0;
+    $matchingBookings = [];
     $targetStart = timeToMinutes($startTime);
     $targetEnd = timeToMinutes($endTime);
     if ($targetEnd <= $targetStart) {
         $targetEnd += 24 * 60;
     }
-
-    foreach ($stmt->fetchAll() as $booking) {
+    foreach ($bookings as $booking) {
         $bookingStart = timeToMinutes($booking['start_time']);
         $bookingEnd = timeToMinutes($booking['end_time']);
         if ($bookingEnd <= $bookingStart) {
             $bookingEnd += 24 * 60;
         }
-        if ($bookingStart !== $targetStart || $bookingEnd !== $targetEnd) {
-            continue;
+        if ($bookingStart === $targetStart && $bookingEnd === $targetEnd) {
+            $matchingBookings[] = $booking;
         }
+    }
 
+    $playersByBooking = [];
+    if ($matchingBookings) {
+        $bookingIds = array_map(static fn (array $booking): string => (string) (int) $booking['id'], $matchingBookings);
+        $playerRows = supabaseRequest('GET', 'booking_players', [
+            'select' => 'booking_id,player_name',
+            'booking_id' => 'in.(' . implode(',', $bookingIds) . ')',
+            'order' => 'id.asc',
+        ]);
+        foreach ($playerRows as $player) {
+            $playersByBooking[(int) $player['booking_id']][] = $player['player_name'];
+        }
+    }
+
+    $players = [];
+    $playersBooked = 0;
+    foreach ($matchingBookings as $booking) {
         $bookingPlayers = [$booking['host_name']];
-        $additionalPlayers = getBookingPlayers((int) $booking['id']);
-        if (!$additionalPlayers) {
-            $additionalPlayers = parsePlayerNames(explode(',', (string) $booking['player_names']));
-        }
+        $additionalPlayers = $playersByBooking[(int) $booking['id']] ?? parsePlayerNames(explode(',', (string) $booking['player_names']));
         array_push($bookingPlayers, ...$additionalPlayers);
-
         $bookingPlayerCount = max((int) $booking['players_count'], count($bookingPlayers));
         $playersBooked += $bookingPlayerCount;
         array_push($players, ...$bookingPlayers);
@@ -427,7 +409,7 @@ function getOpenPlayRoster(int $courtId, string $date, string $startTime, string
 
     return [
         'players_booked' => $playersBooked,
-        'players' => array_values(array_filter($players, static fn ($name) => trim((string) $name) !== '')),
+        'players' => array_values(array_filter($players, static fn ($name): bool => trim((string) $name) !== '')),
     ];
 }
 
@@ -439,38 +421,115 @@ function timeToMinutes(string $time): int
 
 function fetchAllPlayers(): array
 {
-    $pdo = getPdo();
-    $stmt = $pdo->query('SELECT b.id, b.booking_reference, b.host_name, b.contact_number, b.email, b.booking_type, b.booking_date, b.court_id, c.name AS court_name, b.player_names FROM bookings b LEFT JOIN courts c ON c.id = b.court_id ORDER BY b.booking_date DESC, b.id DESC');
-    return $stmt->fetchAll();
+    $bookings = supabaseRequest('GET', 'bookings', [
+        'select' => 'id,booking_reference,host_name,contact_number,email,booking_type,booking_date,court_id,player_names,courts(name)',
+        'order' => 'booking_date.desc,id.desc',
+    ]);
+    return array_map('normalizeBooking', $bookings);
 }
 
 function getBookingById(int $bookingId): ?array
 {
-    $pdo = getPdo();
-    $stmt = $pdo->prepare('SELECT b.*, c.name AS court_name FROM bookings b LEFT JOIN courts c ON c.id = b.court_id WHERE b.id = ? LIMIT 1');
-    $stmt->execute([$bookingId]);
-    return $stmt->fetch() ?: null;
+    $bookings = supabaseRequest('GET', 'bookings', [
+        'select' => '*,courts(name)',
+        'id' => 'eq.' . $bookingId,
+        'limit' => '1',
+    ]);
+    return isset($bookings[0]) ? normalizeBooking($bookings[0]) : null;
+}
+
+function getBookingByReference(string $reference): ?array
+{
+    $bookings = supabaseRequest('GET', 'bookings', [
+        'select' => '*,courts(name)',
+        'booking_reference' => 'eq.' . $reference,
+        'status' => 'eq.confirmed',
+        'limit' => '1',
+    ]);
+    return isset($bookings[0]) ? normalizeBooking($bookings[0]) : null;
 }
 
 function getBookingPlayers(int $bookingId): array
 {
-    $pdo = getPdo();
-    $stmt = $pdo->prepare('SELECT player_name FROM booking_players WHERE booking_id = ? ORDER BY id ASC');
-    $stmt->execute([$bookingId]);
-    return array_map(static fn ($row) => $row['player_name'], $stmt->fetchAll());
+    $players = supabaseRequest('GET', 'booking_players', [
+        'select' => 'player_name',
+        'booking_id' => 'eq.' . $bookingId,
+        'order' => 'id.asc',
+    ]);
+    return array_map(static fn (array $player): string => $player['player_name'], $players);
 }
 
-function ensureBookingPlayers(int $bookingId, array $players): void
+function findAdminByUsername(string $username): ?array
 {
-    $pdo = getPdo();
-    $pdo->prepare('DELETE FROM booking_players WHERE booking_id = ?')->execute([$bookingId]);
+    $admins = supabaseRequest('GET', 'admins', [
+        'select' => 'id,username,password_hash,full_name',
+        'username' => 'eq.' . $username,
+        'is_active' => 'eq.true',
+        'limit' => '1',
+    ]);
+    return $admins[0] ?? null;
+}
 
-    if (!$players) {
-        return;
-    }
+function createBooking(array $booking, array $players): array
+{
+    return supabaseRequest('POST', 'rpc/create_booking', [], [
+        'p_booking' => $booking,
+        'p_players' => array_values($players),
+    ]);
+}
 
-    $insert = $pdo->prepare('INSERT INTO booking_players (booking_id, player_name) VALUES (?, ?)');
-    foreach ($players as $player) {
-        $insert->execute([$bookingId, $player]);
+function updatePaymentReference(string $bookingReference, string $paymentReference): bool
+{
+    $updated = supabaseRequest('PATCH', 'bookings', [
+        'booking_reference' => 'eq.' . $bookingReference,
+        'payment_status' => 'eq.pending',
+        'status' => 'eq.confirmed',
+        'select' => 'id',
+    ], ['payment_reference' => $paymentReference], 'return=representation');
+    return count($updated) > 0;
+}
+
+function updateBookingPaymentStatus(int $bookingId, string $paymentStatus): bool
+{
+    if (!in_array($paymentStatus, ['pending', 'paid'], true)) {
+        throw new InvalidArgumentException('Invalid payment status.');
     }
+    $updated = supabaseRequest('PATCH', 'bookings', [
+        'id' => 'eq.' . $bookingId,
+        'status' => 'eq.confirmed',
+        'select' => 'id',
+    ], ['payment_status' => $paymentStatus, 'updated_at' => date(DATE_ATOM)], 'return=representation');
+    return count($updated) > 0;
+}
+
+function cancelBooking(int $bookingId): bool
+{
+    $updated = supabaseRequest('PATCH', 'bookings', [
+        'id' => 'eq.' . $bookingId,
+        'status' => 'eq.confirmed',
+        'select' => 'id',
+    ], ['status' => 'cancelled', 'updated_at' => date(DATE_ATOM)], 'return=representation');
+    return count($updated) > 0;
+}
+
+function addCourt(string $name): void
+{
+    supabaseRequest('POST', 'courts', [], [
+        'name' => $name,
+        'max_players' => 12,
+        'status' => 'available',
+        'is_active' => true,
+    ], 'return=minimal');
+}
+
+function setCourtActive(int $courtId, bool $isActive): bool
+{
+    $updated = supabaseRequest('PATCH', 'courts', [
+        'id' => 'eq.' . $courtId,
+        'select' => 'id',
+    ], [
+        'is_active' => $isActive,
+        'status' => $isActive ? 'available' : 'inactive',
+    ], 'return=representation');
+    return count($updated) > 0;
 }

@@ -399,6 +399,111 @@ textarea {
     align-items: start;
 }
 
+.booking-details {
+    margin-top: 20px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: rgba(17, 11, 29, 0.72);
+    overflow: hidden;
+}
+
+.booking-details > summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 22px;
+    color: var(--text);
+    font-weight: 750;
+    cursor: pointer;
+    list-style: none;
+}
+
+.booking-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.booking-details > summary::after {
+    content: "+";
+    color: var(--lime);
+    font-size: 1.5rem;
+}
+
+.booking-details[open] > summary::after {
+    content: "−";
+}
+
+.booking-details > summary span {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-weight: 500;
+    text-align: right;
+}
+
+.booking-details[open] .booking-shell {
+    padding: 0 16px 16px;
+}
+
+.booking-price {
+    margin-bottom: 18px;
+    color: var(--lime);
+    font-weight: 750;
+}
+
+.payment-instructions {
+    margin-top: 24px;
+    padding: 20px;
+    border: 1px solid rgba(184, 255, 58, 0.24);
+    border-radius: 16px;
+    background: rgba(184, 255, 58, 0.045);
+}
+
+.payment-instructions h4 {
+    margin: 0 0 10px;
+    color: var(--text);
+    font-size: 1.15rem;
+}
+
+.payment-qr {
+    display: grid;
+    justify-items: center;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.payment-qr img {
+    display: block;
+    width: min(100%, 360px);
+    height: auto;
+    padding: 10px;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.payment-qr figcaption {
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.payment-instructions p {
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+.payment-reference-form {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+
+.payment-reference-form .form-field {
+    flex: 1 1 240px;
+}
+
 .form-card,
 .summary-card {
     padding: 28px;
@@ -816,6 +921,21 @@ td .muted {
 
     .player-row .small-button {
         justify-self: start;
+    }
+
+    .booking-details > summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .booking-details > summary span {
+        margin-left: 0;
+        text-align: left;
+    }
+
+    .payment-reference-form > button {
+        width: 100%;
     }
 
     .admin-main {

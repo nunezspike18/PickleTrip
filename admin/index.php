@@ -3,17 +3,33 @@ session_start();
 require_once __DIR__ . '/../includes/functions.php';
 requireAdminLogin();
 
-$pdo = getPdo();
-$page = $_GET['page'] ?? 'dashboard';
+$page = is_string($_GET['page'] ?? null) ? $_GET['page'] : 'dashboard';
+$csrf = csrfToken();
+$searchFilter = is_string($_GET['search'] ?? null) ? $_GET['search'] : '';
+$dateFilter = is_string($_GET['date'] ?? null) ? $_GET['date'] : '';
+$typeFilter = is_string($_GET['type'] ?? null) ? $_GET['type'] : '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isValidCsrfToken($_POST['csrf_token'] ?? null)) {
+        http_response_code(403);
+        exit('Your form session expired. Refresh the page and try again.');
+    }
+
     $action = $_POST['action'] ?? '';
 
     if ($action === 'cancel_booking') {
         $bookingId = (int) ($_POST['booking_id'] ?? 0);
         if ($bookingId > 0) {
-            $stmt = $pdo->prepare("UPDATE bookings SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?");
-            $stmt->execute([$bookingId]);
+            cancelBooking($bookingId);
+        }
+        header('Location: /admin/index.php?page=bookings');
+        exit;
+    }
+
+    if ($action === 'mark_payment_paid') {
+        $bookingId = (int) ($_POST['booking_id'] ?? 0);
+        if ($bookingId > 0) {
+            updateBookingPaymentStatus($bookingId, 'paid');
         }
         header('Location: /admin/index.php?page=bookings');
         exit;
@@ -22,8 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add_court') {
         $name = sanitizeText($_POST['name'] ?? '');
         if ($name !== '') {
-            $stmt = $pdo->prepare("INSERT INTO courts (name, max_players, status, is_active) VALUES (?, 12, 'available', 1)");
-            $stmt->execute([$name]);
+            addCourt($name);
         }
         header('Location: /admin/index.php?page=courts');
         exit;
@@ -33,8 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $courtId = (int) ($_POST['court_id'] ?? 0);
         $state = (int) ($_POST['is_active'] ?? 0);
         if ($courtId > 0) {
-            $stmt = $pdo->prepare("UPDATE courts SET is_active = ?, status = CASE WHEN ? = 1 THEN 'available' ELSE 'inactive' END WHERE id = ?");
-            $stmt->execute([$state, $state, $courtId]);
+            setCourtActive($courtId, $state === 1);
         }
         header('Location: /admin/index.php?page=courts');
         exit;
@@ -42,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $stats = getDashboardStats();
-$allBookings = getBookingsForAdmin($_GET['search'] ?? '', $_GET['date'] ?? '', $_GET['type'] ?? '');
+$allBookings = getBookingsForAdmin($searchFilter, $dateFilter, $typeFilter);
 $courts = getCourtList();
 $players = fetchAllPlayers();
 $recent = getRecentBookings(5);
@@ -154,18 +168,18 @@ $recent = getRecentBookings(5);
                         <input type="hidden" name="page" value="bookings" />
                         <div class="form-field">
                             <label>Search</label>
-                            <input type="text" name="search" value="<?= htmlspecialchars($_GET['search'] ?? '') ?>" placeholder="Booking ID or name" />
+                            <input type="text" name="search" value="<?= htmlspecialchars($searchFilter) ?>" placeholder="Booking ID or name" />
                         </div>
                         <div class="form-field">
                             <label>Date</label>
-                            <input type="date" name="date" value="<?= htmlspecialchars($_GET['date'] ?? '') ?>" />
+                            <input type="date" name="date" value="<?= htmlspecialchars($dateFilter) ?>" />
                         </div>
                         <div class="form-field">
                             <label>Type</label>
                             <select name="type">
                                 <option value="">All</option>
-                                <option value="open_play" <?= ($_GET['type'] ?? '') === 'open_play' ? 'selected' : '' ?>>Open Play</option>
-                                <option value="court_rental" <?= ($_GET['type'] ?? '') === 'court_rental' ? 'selected' : '' ?>>Court Rental</option>
+                                <option value="open_play" <?= $typeFilter === 'open_play' ? 'selected' : '' ?>>Open Play</option>
+                                <option value="court_rental" <?= $typeFilter === 'court_rental' ? 'selected' : '' ?>>Court Rental</option>
                             </select>
                         </div>
                         <button type="submit" class="button-primary">Apply</button>
@@ -185,6 +199,7 @@ $recent = getRecentBookings(5);
                                     <th>Court</th>
                                     <th>Players</th>
                                     <th>Status</th>
+                                    <th>Payment</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -201,11 +216,29 @@ $recent = getRecentBookings(5);
                                         <td><?= (int) $booking['players_count'] ?></td>
                                         <td><span class="status-pill <?= $booking['status'] === 'cancelled' ? 'full' : 'available' ?>"><?= htmlspecialchars($booking['status']) ?></span></td>
                                         <td>
+                                            <strong><?= htmlspecialchars(formatMoney($booking['payment_amount'])) ?></strong>
+                                            <div class="muted-note"><?= htmlspecialchars(ucfirst($booking['payment_status'])) ?></div>
+                                            <?php if (!empty($booking['payment_reference'])): ?>
+                                                <div class="muted-note">GCash ref: <?= htmlspecialchars($booking['payment_reference']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
                                             <div class="table-actions">
+                                                <?php if ($booking['payment_status'] !== 'paid' && $booking['status'] === 'confirmed'): ?>
+                                                    <form method="post" style="display:inline;">
+                                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
+                                                        <input type="hidden" name="action" value="mark_payment_paid" />
+                                                        <input type="hidden" name="booking_id" value="<?= (int) $booking['id'] ?>" />
+                                                        <button type="submit" class="small-button">Mark paid</button>
+                                                    </form>
+                                                <?php endif; ?>
                                                 <form method="post" style="display:inline;">
+                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
                                                     <input type="hidden" name="action" value="cancel_booking" />
                                                     <input type="hidden" name="booking_id" value="<?= (int) $booking['id'] ?>" />
-                                                    <button type="submit" class="button-danger">Cancel</button>
+                                                    <?php if ($booking['status'] === 'confirmed'): ?>
+                                                        <button type="submit" class="button-danger">Cancel</button>
+                                                    <?php endif; ?>
                                                 </form>
                                             </div>
                                         </td>
@@ -221,6 +254,7 @@ $recent = getRecentBookings(5);
                 <div class="card form-card" style="margin-top: 24px;">
                     <h3>Add court</h3>
                     <form method="post">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
                         <input type="hidden" name="action" value="add_court" />
                         <div class="form-grid" style="grid-template-columns: 1fr 180px; align-items: end;">
                             <div class="form-field">
@@ -252,6 +286,7 @@ $recent = getRecentBookings(5);
                                         <td><span class="status-pill available"><?= htmlspecialchars($court['status']) ?></span></td>
                                         <td>
                                             <form method="post" style="display:inline;">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
                                                 <input type="hidden" name="action" value="toggle_court" />
                                                 <input type="hidden" name="court_id" value="<?= (int) $court['id'] ?>" />
                                                 <input type="hidden" name="is_active" value="<?= (int) ($court['is_active'] == 1 ? 0 : 1) ?>" />
@@ -313,7 +348,8 @@ $recent = getRecentBookings(5);
             <?php if ($page === 'settings'): ?>
                 <div class="card form-card" style="margin-top: 24px;">
                     <h3>Settings</h3>
-                    <p class="muted-note">Security is enforced with PHP sessions and password hashing. The default admin login is username: <strong>admin</strong> and password: <strong>admin123</strong>.</p>
+                    <p class="muted-note">The application connects to Supabase from the PHP server. Keep the service-role key and GCash number in private server environment variables; never commit them to GitHub.</p>
+                    <p class="muted-note">Set <strong>PICKLE_SUPABASE_URL</strong>, <strong>PICKLE_SUPABASE_SERVICE_ROLE_KEY</strong>, <strong>PICKLE_GCASH_NUMBER</strong>, <strong>PICKLE_OPEN_PLAY_PRICE</strong>, and <strong>PICKLE_COURT_RENTAL_HOURLY_PRICE</strong> on the server. Admins can verify submitted GCash references in Manage Bookings.</p>
                 </div>
             <?php endif; ?>
         </main>

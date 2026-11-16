@@ -21,9 +21,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function updatePlayerCount() {
             const inputs = Array.from(container.querySelectorAll('input[name="other_players[]"]'));
-            const additionalPlayers = inputs.filter(function (input) {
-                return input.value.trim() !== '';
-            }).length;
+            const additionalPlayers = new Set(inputs.map(function (input) {
+                return input.value.trim();
+            }).filter(Boolean)).size;
             const totalPlayers = additionalPlayers + 1;
             countLabel.textContent = 'Players in this booking: ' + totalPlayers + ' / 12';
             addButton.disabled = totalPlayers >= 12 || inputs.length >= 11;
@@ -71,6 +71,45 @@ document.addEventListener('DOMContentLoaded', function () {
 
     attachPlayerAdder('open-play-player-list');
     attachPlayerAdder('rental-player-list');
+
+    document.querySelectorAll('[data-price-preview]').forEach(function (preview) {
+        const form = preview.closest('form');
+        if (!form) {
+            return;
+        }
+
+        function updatePrice() {
+            let amount = 0;
+            if (form.querySelector('[name="booking_type"][value="open_play"]')) {
+                const extraPlayers = new Set(Array.from(form.querySelectorAll('[name="other_players[]"]'))
+                    .map(function (input) { return input.value.trim(); })
+                    .filter(Boolean)).size;
+                amount = Number(preview.dataset.pricePerPlayer) * (extraPlayers + 1);
+            } else {
+                const duration = Number(form.querySelector('[name="rental_duration"]').value);
+                amount = Number(preview.dataset.pricePerHour) * duration;
+            }
+            preview.textContent = 'Booking total: PHP ' + amount.toLocaleString('en-PH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
+
+        form.addEventListener('input', updatePrice);
+        form.addEventListener('change', updatePrice);
+        updatePrice();
+    });
+
+    document.querySelectorAll('[data-copy-text]').forEach(function (button) {
+        button.addEventListener('click', async function () {
+            try {
+                await navigator.clipboard.writeText(button.dataset.copyText);
+                button.textContent = 'Copied';
+            } catch (error) {
+                button.textContent = 'Copy unavailable — select and copy the number above';
+            }
+        });
+    });
 
     const openPlayForm = document.querySelector('form[data-booking-form] input[name="booking_type"][value="open_play"]')?.form;
     if (openPlayForm) {

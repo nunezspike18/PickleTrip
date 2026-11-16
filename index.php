@@ -5,26 +5,45 @@ require_once __DIR__ . '/includes/functions.php';
 $successMessage = '';
 $errorMessage = '';
 $bookingResult = null;
+$paymentMessage = '';
+$submittedBookingType = '';
+$csrf = csrfToken();
 
 function handleBookingSubmission(array $postData): array
 {
     $bookingType = sanitizeText($postData['booking_type'] ?? '');
-    $courtId = (int) ($postData['court_id'] ?? 0);
     $date = sanitizeText($postData['booking_date'] ?? '');
     $hostName = sanitizeText($postData['host_name'] ?? $postData['renter_name'] ?? '');
     $contactNumber = sanitizeText($postData['contact_number'] ?? '');
     $email = sanitizeText($postData['email'] ?? '');
     $playerInput = $postData['other_players'] ?? [];
     $players = parsePlayerNames(is_array($playerInput) ? $playerInput : [$playerInput]);
+    $validDate = DateTime::createFromFormat('!Y-m-d', $date);
+    $dateErrors = DateTime::getLastErrors();
 
-    $court = getCourtById($courtId);
-    if (!$court) {
+    if (!in_array($bookingType, ['open_play', 'court_rental'], true)) {
+        return ['success' => false, 'message' => 'Choose a valid booking type.'];
+    }
+
+    if ($validDate === false || $validDate->format('Y-m-d') !== $date
+        || ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0))
+        || $date < date('Y-m-d')) {
+        return ['success' => false, 'message' => 'Choose a valid booking date that is today or later.'];
+    }
+
+    if ($hostName === '' || $contactNumber === '' || strlen($contactNumber) > 50) {
+        return ['success' => false, 'message' => 'Please provide the booking host name and a valid contact number.'];
+    }
+
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['success' => false, 'message' => 'Please provide a valid email address.'];
+    }
+
+    $courtId = filter_var($postData['court_id'] ?? null, FILTER_VALIDATE_INT);
+    if ($courtId === false || $courtId < 1) {
         return ['success' => false, 'message' => 'Please select a valid court.'];
     }
-
-    if ($date === '' || $hostName === '' || $contactNumber === '') {
-        return ['success' => false, 'message' => 'Please provide the booking date, host name, and contact details.'];
-    }
+    $durationHours = 0;
 
     if ($bookingType === 'open_play') {
         $openPlaySlots = [
@@ -38,12 +57,23 @@ function handleBookingSubmission(array $postData): array
         [$startTime, $endTime] = $openPlaySlots[$slot];
     } else {
         $startTime = sanitizeText($postData['start_time'] ?? '');
-        $durationHours = (float) ($postData['rental_duration'] ?? 1);
+        $durationHours = filter_var($postData['rental_duration'] ?? null, FILTER_VALIDATE_INT);
+        if ($durationHours === false || $durationHours < 1 || $durationHours > 4) {
+            return ['success' => false, 'message' => 'Choose a rental duration from 1 to 4 hours.'];
+        }
+        $parsedStartTime = DateTime::createFromFormat('!H:i', $startTime);
+        if ($parsedStartTime === false || $parsedStartTime->format('H:i') !== $startTime) {
+            return ['success' => false, 'message' => 'Please select a valid start time.'];
+        }
+        if (timeToMinutes($startTime) + ($durationHours * 60) > 24 * 60) {
+            return ['success' => false, 'message' => 'Court rentals must finish by midnight.'];
+        }
         $endTime = date('H:i', strtotime('+' . $durationHours . ' hours', strtotime($startTime)));
     }
 
-    if ($startTime === '' || $endTime === '') {
-        return ['success' => false, 'message' => 'Please select a valid time.'];
+    $court = getCourtById($courtId);
+    if (!$court) {
+        return ['success' => false, 'message' => 'Please select a valid court.'];
     }
 
     $totalPlayers = 1 + count($players);
@@ -52,6 +82,9 @@ function handleBookingSubmission(array $postData): array
         return ['success' => false, 'message' => 'A booking can include a maximum of ' . $maxPlayers . ' players including the booking host.'];
     }
 
+    $paymentAmount = $bookingType === 'open_play'
+        ? OPEN_PLAY_PRICE * $totalPlayers
+        : COURT_RENTAL_HOURLY_PRICE * $durationHours;
     $availability = courtHasAvailability(
         $courtId,
         $date,
@@ -66,21 +99,32 @@ function handleBookingSubmission(array $postData): array
     }
 
     $reference = generateReference();
-    $pdo = getPdo();
-    $stmt = $pdo->prepare("INSERT INTO bookings (booking_reference, booking_type, booking_date, start_time, end_time, court_id, host_name, contact_number, email, player_names, players_count, status, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, CURRENT_TIMESTAMP)");
     $playerList = implode(', ', $players);
-    $result = $stmt->execute([$reference, $bookingType, $date, $startTime, $endTime, $courtId, $hostName, $contactNumber, $email, $playerList, $totalPlayers, 'Booking created from public website.']);
-
-    if (!$result) {
-        return ['success' => false, 'message' => 'The booking could not be saved. Please try again.'];
+    try {
+        createBooking([
+            'booking_reference' => $reference,
+            'booking_type' => $bookingType,
+            'booking_date' => $date,
+            'start_time' => $startTime,
+            'end_time' => $endTime,
+            'court_id' => $courtId,
+            'host_name' => $hostName,
+            'contact_number' => $contactNumber,
+            'email' => $email,
+            'player_names' => $playerList,
+            'players_count' => $totalPlayers,
+            'payment_amount' => $paymentAmount,
+        ], $players);
+    } catch (SupabaseException $error) {
+        if ($error->apiCode === 'P0001') {
+            return ['success' => false, 'message' => $error->getMessage()];
+        }
+        throw $error;
     }
-
-    $bookingId = (int) $pdo->lastInsertId();
-    ensureBookingPlayers($bookingId, $players);
 
     return [
         'success' => true,
-        'message' => 'Booking confirmed successfully.',
+        'message' => 'Booking confirmed. Please pay by GCash and submit your transaction reference for manual verification.',
         'reference' => $reference,
         'booking_type' => $bookingType,
         'booking_date' => $date,
@@ -92,15 +136,52 @@ function handleBookingSubmission(array $postData): array
         'email' => $email,
         'players' => $players,
         'players_count' => $totalPlayers,
+        'payment_amount' => $paymentAmount,
+        'payment_status' => 'pending',
     ];
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['booking_type'])) {
-    $bookingResult = handleBookingSubmission($_POST);
-    if ($bookingResult['success']) {
-        $successMessage = $bookingResult['message'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isValidCsrfToken($_POST['csrf_token'] ?? null)) {
+        http_response_code(403);
+        $errorMessage = 'Your form session expired. Refresh the page and try again.';
+    } elseif (($_POST['action'] ?? '') === 'submit_payment_reference') {
+        $reference = sanitizeText($_POST['booking_reference'] ?? '');
+        $paymentReference = sanitizeText($_POST['payment_reference'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9-]{5,40}$/', $reference)
+            || !preg_match('/^[A-Za-z0-9-]{5,40}$/', $paymentReference)) {
+            $errorMessage = 'Enter a valid booking reference and GCash transaction number.';
+        } else {
+            try {
+                if (!updatePaymentReference($reference, $paymentReference)) {
+                    $errorMessage = 'The booking was not found or its payment reference was already submitted.';
+                } else {
+                    $paymentMessage = 'GCash transaction reference submitted. Your payment is pending admin verification.';
+                }
+            } catch (SupabaseException $error) {
+                if ($error->apiCode === '23505') {
+                    $errorMessage = 'That GCash transaction number has already been submitted.';
+                } else {
+                    throw $error;
+                }
+            }
+        }
+        $bookingResult = getBookingByReference($reference);
+        if ($bookingResult) {
+            $bookingResult['players'] = getBookingPlayers((int) $bookingResult['id']);
+            $bookingResult['reference'] = $bookingResult['booking_reference'];
+            $bookingResult['success'] = true;
+        } elseif ($errorMessage === '') {
+            $errorMessage = 'The booking could not be found.';
+        }
     } else {
-        $errorMessage = $bookingResult['message'];
+        $submittedBookingType = sanitizeText($_POST['booking_type'] ?? '');
+        $bookingResult = handleBookingSubmission($_POST);
+        if ($bookingResult['success']) {
+            $successMessage = $bookingResult['message'];
+        } else {
+            $errorMessage = $bookingResult['message'];
+        }
     }
 }
 
@@ -194,11 +275,17 @@ $recentBookings = getRecentBookings(10, true);
                 <?php if ($errorMessage !== ''): ?>
                     <div class="alert error"><?= htmlspecialchars($errorMessage) ?></div>
                 <?php endif; ?>
-                <div class="booking-shell">
+                <details class="booking-details" <?= $submittedBookingType === 'open_play' || ($bookingResult && ($bookingResult['booking_type'] ?? '') === 'open_play') ? 'open' : '' ?>>
+                    <summary>Open play booking <span>Choose your court, players, and time</span></summary>
+                    <div class="booking-shell">
                     <div class="card form-card">
                         <h3>Open Play Booking</h3>
                         <form method="post" data-booking-form>
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
                             <input type="hidden" name="booking_type" value="open_play" />
+                            <div class="booking-price" data-price-preview data-price-per-player="<?= (int) OPEN_PLAY_PRICE ?>">
+                                PHP <?= number_format(OPEN_PLAY_PRICE) ?> per player
+                            </div>
                             <div class="form-grid">
                                 <div class="form-field">
                                     <label for="op_date">Booking date</label>
@@ -232,7 +319,7 @@ $recentBookings = getRecentBookings(10, true);
                                 </div>
                                 <div class="form-field">
                                     <label for="op_phone">Contact number</label>
-                                    <input id="op_phone" type="tel" name="contact_number" placeholder="+1 (555) 123-4567" required />
+                                    <input id="op_phone" type="tel" name="contact_number" placeholder="09xx xxx xxxx" required />
                                 </div>
                                 <div class="form-field">
                                     <label for="op_email">Email (optional)</label>
@@ -251,7 +338,7 @@ $recentBookings = getRecentBookings(10, true);
                                 </div>
                             </div>
                             <div class="form-actions">
-                                <button type="submit" class="button-primary">Confirm booking</button>
+                                <button type="submit" class="button-primary">Book and view payment details</button>
                             </div>
                         </form>
                     </div>
@@ -274,7 +361,8 @@ $recentBookings = getRecentBookings(10, true);
                             </div>
                         </div>
                     </aside>
-                </div>
+                    </div>
+                </details>
             </div>
         </section>
 
@@ -286,11 +374,17 @@ $recentBookings = getRecentBookings(10, true);
                         <h2>Rent a court</h2>
                     </div>
                 </div>
-                <div class="booking-shell">
+                <details class="booking-details" <?= $submittedBookingType === 'court_rental' || ($bookingResult && ($bookingResult['booking_type'] ?? '') === 'court_rental') ? 'open' : '' ?>>
+                    <summary>Court rental booking <span>Choose a date, duration, and court</span></summary>
+                    <div class="booking-shell">
                     <div class="card form-card">
                         <h3>Private Court Rental</h3>
                         <form method="post" data-booking-form>
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
                             <input type="hidden" name="booking_type" value="court_rental" />
+                            <div class="booking-price" data-price-preview data-price-per-hour="<?= (int) COURT_RENTAL_HOURLY_PRICE ?>">
+                                PHP <?= number_format(COURT_RENTAL_HOURLY_PRICE) ?> per court per hour
+                            </div>
                             <div class="form-grid">
                                 <div class="form-field">
                                     <label for="r_date">Rental date</label>
@@ -324,7 +418,7 @@ $recentBookings = getRecentBookings(10, true);
                                 </div>
                                 <div class="form-field">
                                     <label for="r_phone">Contact number</label>
-                                    <input id="r_phone" type="tel" name="contact_number" placeholder="+1 (555) 123-4567" required />
+                                    <input id="r_phone" type="tel" name="contact_number" placeholder="09xx xxx xxxx" required />
                                 </div>
                                 <div class="form-field">
                                     <label for="r_email">Email (optional)</label>
@@ -343,7 +437,7 @@ $recentBookings = getRecentBookings(10, true);
                                 </div>
                             </div>
                             <div class="form-actions">
-                                <button type="submit" class="button-primary">Reserve now</button>
+                                <button type="submit" class="button-primary">Book and view payment details</button>
                             </div>
                         </form>
                     </div>
@@ -362,7 +456,8 @@ $recentBookings = getRecentBookings(10, true);
                             </div>
                         </div>
                     </aside>
-                </div>
+                    </div>
+                </details>
             </div>
         </section>
 
@@ -409,6 +504,8 @@ $recentBookings = getRecentBookings(10, true);
                                         <th>Date</th>
                                         <th>Time</th>
                                         <th>Players</th>
+                                        <th>Fee</th>
+                                        <th>Payment</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -426,6 +523,8 @@ $recentBookings = getRecentBookings(10, true);
                                                     <?= htmlspecialchars(implode(', ', array_filter([$booking['host_name'], $booking['player_names']]))) ?>
                                                 </div>
                                             </td>
+                                            <td><?= htmlspecialchars(formatMoney($booking['payment_amount'])) ?></td>
+                                            <td><?= htmlspecialchars(ucfirst($booking['payment_status'])) ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -437,6 +536,14 @@ $recentBookings = getRecentBookings(10, true);
                 </div>
             </div>
         </section>
+
+        <?php if ($paymentMessage !== ''): ?>
+            <section class="section">
+                <div class="container">
+                    <div class="alert success"><?= htmlspecialchars($paymentMessage) ?></div>
+                </div>
+            </section>
+        <?php endif; ?>
 
         <?php if ($bookingResult && $bookingResult['success']): ?>
             <section class="section" id="booking-confirmation">
@@ -453,6 +560,39 @@ $recentBookings = getRecentBookings(10, true);
                             <div class="summary-row"><span>Court</span><strong><?= htmlspecialchars($bookingResult['court_name']) ?></strong></div>
                             <div class="summary-row"><span>Total players</span><strong><?= (int) $bookingResult['players_count'] ?></strong></div>
                             <div class="summary-row"><span>Player list</span><strong><?= htmlspecialchars(implode(', ', $bookingResult['players'] ?: ['Host only'])) ?></strong></div>
+                            <div class="summary-row"><span>Booking fee</span><strong><?= htmlspecialchars(formatMoney($bookingResult['payment_amount'])) ?></strong></div>
+                            <div class="summary-row"><span>Payment status</span><strong><?= htmlspecialchars(ucfirst($bookingResult['payment_status'] ?? 'pending')) ?></strong></div>
+                        </div>
+                        <div class="payment-instructions">
+                            <h4>Pay with GCash</h4>
+                            <figure class="payment-qr">
+                                <img src="assets/images/gcash-qr.jpg" alt="GCash InstaPay QR code for Pickle Trip payments" width="410" height="410" />
+                                <figcaption>Scan the QR code with GCash and enter the exact booking fee shown above.</figcaption>
+                            </figure>
+                            <p>Include booking reference <strong><?= htmlspecialchars($bookingResult['reference']) ?></strong> in your payment message. Bookings are reserved immediately; payments are manually verified.</p>
+                            <?php if (GCASH_NUMBER !== ''): ?>
+                                <div class="summary-row">
+                                    <span>GCash number</span>
+                                    <strong><?= htmlspecialchars(GCASH_NUMBER) ?></strong>
+                                </div>
+                                <button type="button" class="small-button" data-copy-text="<?= htmlspecialchars(GCASH_NUMBER) ?>">Copy GCash number</button>
+                            <?php endif; ?>
+                            <?php if (($bookingResult['payment_status'] ?? 'pending') === 'paid'): ?>
+                                <div class="alert success">Payment verified by the venue.</div>
+                            <?php elseif (!empty($bookingResult['payment_reference'])): ?>
+                                <p class="muted-note">GCash transaction number submitted: <strong><?= htmlspecialchars($bookingResult['payment_reference']) ?></strong>. Waiting for admin verification.</p>
+                            <?php else: ?>
+                                <form method="post" class="payment-reference-form">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
+                                    <input type="hidden" name="action" value="submit_payment_reference" />
+                                    <input type="hidden" name="booking_reference" value="<?= htmlspecialchars($bookingResult['reference']) ?>" />
+                                    <div class="form-field">
+                                        <label for="payment_reference">GCash transaction number</label>
+                                        <input id="payment_reference" type="text" name="payment_reference" minlength="5" maxlength="40" pattern="[A-Za-z0-9-]{5,40}" required />
+                                    </div>
+                                    <button type="submit" class="button-primary">Submit payment reference</button>
+                                </form>
+                            <?php endif; ?>
                         </div>
                         <div class="form-actions">
                             <button type="button" class="button-primary" data-print-booking>Print Booking</button>
