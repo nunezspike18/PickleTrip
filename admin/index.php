@@ -370,7 +370,7 @@ $recent = getRecentBookings(5);
                     <div class="card form-card" style="margin-top: 24px;">
                         <div class="admin-topbar">
                             <h3>Players in this open-play booking</h3>
-                            <a class="small-button" href="/admin/index.php?page=players">All players</a>
+                            <a class="small-button" href="/admin/index.php?page=openplay">Back to Open Play</a>
                         </div>
                         <div class="booking-summary">
                             <div class="summary-row"><span>Booking reference</span><strong><?= htmlspecialchars($selectedOpenPlayBooking['booking_reference']) ?></strong></div>
