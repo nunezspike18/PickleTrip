@@ -481,6 +481,16 @@ function cancelBooking(int $bookingId): bool
     return count($updated) > 0;
 }
 
+function deleteOpenPlayBooking(int $bookingId): bool
+{
+    $deleted = supabaseRequest('DELETE', 'bookings', [
+        'id' => 'eq.' . $bookingId,
+        'booking_type' => 'eq.open_play',
+        'select' => 'id',
+    ], null, 'return=representation');
+    return count($deleted) > 0;
+}
+
 function addCourt(string $name): void
 {
     supabaseRequest('POST', 'courts', [], [

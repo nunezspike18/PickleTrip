@@ -8,6 +8,29 @@ $csrf = csrfToken();
 $searchFilter = is_string($_GET['search'] ?? null) ? $_GET['search'] : '';
 $dateFilter = is_string($_GET['date'] ?? null) ? $_GET['date'] : '';
 $typeFilter = is_string($_GET['type'] ?? null) ? $_GET['type'] : '';
+$adminNotice = $_SESSION['admin_notice'] ?? null;
+$selectedOpenPlayBooking = null;
+$selectedOpenPlayPlayers = [];
+$playerViewError = '';
+unset($_SESSION['admin_notice']);
+
+if ($page === 'players' && isset($_GET['booking_id'])) {
+    $selectedBookingId = filter_var($_GET['booking_id'], FILTER_VALIDATE_INT);
+    if ($selectedBookingId === false || $selectedBookingId < 1) {
+        $playerViewError = 'Choose a valid open-play booking.';
+    } else {
+        $selectedOpenPlayBooking = getBookingById($selectedBookingId);
+        if (!$selectedOpenPlayBooking || $selectedOpenPlayBooking['booking_type'] !== 'open_play') {
+            $selectedOpenPlayBooking = null;
+            $playerViewError = 'That open-play booking could not be found.';
+        } else {
+            $selectedOpenPlayPlayers = array_merge(
+                [$selectedOpenPlayBooking['host_name']],
+                getBookingPlayers($selectedBookingId)
+            );
+        }
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!isValidCsrfToken($_POST['csrf_token'] ?? null)) {
@@ -23,6 +46,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cancelBooking($bookingId);
         }
         header('Location: /admin/index.php?page=bookings');
+        exit;
+    }
+
+    if ($action === 'delete_open_play_booking') {
+        $bookingId = filter_var($_POST['booking_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($bookingId === false || $bookingId < 1) {
+            $_SESSION['admin_notice'] = [
+                'type' => 'error',
+                'message' => 'Select a valid open-play booking to delete.',
+            ];
+        } elseif (deleteOpenPlayBooking($bookingId)) {
+            $_SESSION['admin_notice'] = [
+                'type' => 'success',
+                'message' => 'The open-play booking and its associated player records were permanently deleted.',
+            ];
+        } else {
+            $_SESSION['admin_notice'] = [
+                'type' => 'error',
+                'message' => 'The booking was not found or is not an open-play booking. Nothing was deleted.',
+            ];
+        }
+        header('Location: /admin/index.php?page=bookings&type=open_play');
         exit;
     }
 
@@ -111,6 +156,16 @@ $recent = getRecentBookings(5);
                 </h2>
                 <div class="status-pill available">Logged in as <?= htmlspecialchars($_SESSION['admin_full_name'] ?? 'Admin') ?></div>
             </div>
+
+            <?php if ($playerViewError !== ''): ?>
+                <div class="alert error" role="alert"><?= htmlspecialchars($playerViewError) ?></div>
+            <?php endif; ?>
+
+            <?php if (is_array($adminNotice) && isset($adminNotice['message'], $adminNotice['type'])): ?>
+                <div class="alert <?= $adminNotice['type'] === 'success' ? 'success' : 'error' ?>" role="status">
+                    <?= htmlspecialchars($adminNotice['message']) ?>
+                </div>
+            <?php endif; ?>
 
             <?php if ($page === 'dashboard' || $page === 'openplay' || $page === 'rentals'): ?>
                 <div class="stats-grid">
@@ -232,6 +287,15 @@ $recent = getRecentBookings(5);
                                                         <button type="submit" class="small-button">Mark paid</button>
                                                     </form>
                                                 <?php endif; ?>
+                                                <?php if ($booking['booking_type'] === 'open_play'): ?>
+                                                    <a class="small-button" href="/admin/index.php?page=players&amp;booking_id=<?= (int) $booking['id'] ?>">View players</a>
+                                                    <form method="post" style="display:inline;" onsubmit="return confirm('Permanently delete this open-play booking and all associated player records? This cannot be undone.');">
+                                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
+                                                        <input type="hidden" name="action" value="delete_open_play_booking" />
+                                                        <input type="hidden" name="booking_id" value="<?= (int) $booking['id'] ?>" />
+                                                        <button type="submit" class="button-danger">Delete permanently</button>
+                                                    </form>
+                                                <?php endif; ?>
                                                 <form method="post" style="display:inline;">
                                                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>" />
                                                     <input type="hidden" name="action" value="cancel_booking" />
@@ -302,6 +366,26 @@ $recent = getRecentBookings(5);
             <?php endif; ?>
 
             <?php if ($page === 'players'): ?>
+                <?php if ($selectedOpenPlayBooking): ?>
+                    <div class="card form-card" style="margin-top: 24px;">
+                        <div class="admin-topbar">
+                            <h3>Players in this open-play booking</h3>
+                            <a class="small-button" href="/admin/index.php?page=players">All players</a>
+                        </div>
+                        <div class="booking-summary">
+                            <div class="summary-row"><span>Booking reference</span><strong><?= htmlspecialchars($selectedOpenPlayBooking['booking_reference']) ?></strong></div>
+                            <div class="summary-row"><span>Host</span><strong><?= htmlspecialchars($selectedOpenPlayBooking['host_name']) ?></strong></div>
+                            <div class="summary-row"><span>Court</span><strong><?= htmlspecialchars($selectedOpenPlayBooking['court_name'] ?? 'Court') ?></strong></div>
+                            <div class="summary-row"><span>Date and time</span><strong><?= htmlspecialchars(formatDate($selectedOpenPlayBooking['booking_date']) . ', ' . formatTime($selectedOpenPlayBooking['start_time']) . ' - ' . formatTime($selectedOpenPlayBooking['end_time'])) ?></strong></div>
+                            <div class="summary-row"><span>Payment</span><strong><?= htmlspecialchars(ucfirst($selectedOpenPlayBooking['payment_status'])) ?></strong></div>
+                        </div>
+                        <ul>
+                            <?php foreach ($selectedOpenPlayPlayers as $playerName): ?>
+                                <li><?= htmlspecialchars($playerName) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endif; ?>
                 <div class="card form-card" style="margin-top: 24px;">
                     <div class="table-wrap">
                         <table>
