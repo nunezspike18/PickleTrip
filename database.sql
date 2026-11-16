@@ -82,6 +82,7 @@ declare
     v_end_time time := (p_booking ->> 'end_time')::time;
     v_booking_type text := p_booking ->> 'booking_type';
     v_players_count integer := (p_booking ->> 'players_count')::integer;
+    v_payment_reference text := nullif(p_booking ->> 'payment_reference', '');
     v_max_players integer;
     v_open_play_players integer;
     v_conflict boolean;
@@ -91,6 +92,11 @@ begin
        or v_booking_date < current_date
        or v_players_count < 1 then
         raise exception 'Please choose valid booking details.' using errcode = 'P0001';
+    end if;
+
+    if v_booking_type = 'open_play'
+       and (v_payment_reference is null or v_payment_reference !~ '^[A-Za-z0-9-]{5,40}$') then
+        raise exception 'Open-play bookings require a valid GCash transaction number.' using errcode = 'P0001';
     end if;
 
     perform pg_advisory_xact_lock(hashtext(v_booking_date::text), v_court_id::integer);
@@ -145,7 +151,7 @@ begin
     insert into public.bookings (
         booking_reference, booking_type, booking_date, start_time, end_time, court_id,
         host_name, contact_number, email, player_names, players_count, status,
-        payment_amount, payment_status, notes, updated_at
+        payment_amount, payment_status, payment_reference, notes, updated_at
     ) values (
         p_booking ->> 'booking_reference',
         v_booking_type,
@@ -161,6 +167,7 @@ begin
         'confirmed',
         (p_booking ->> 'payment_amount')::numeric,
         'pending',
+        v_payment_reference,
         'Booking created from public website.',
         now()
     )

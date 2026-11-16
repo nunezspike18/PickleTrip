@@ -1,4 +1,65 @@
 document.addEventListener('DOMContentLoaded', function () {
+    const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+    const navigationLinks = Array.from(document.querySelectorAll('.nav-links a'));
+    const mainContent = document.querySelector('.public-site > main');
+
+    function tabForHash(hash) {
+        const id = hash.replace(/^#/, '');
+        const target = id ? document.getElementById(id) : null;
+        const panel = target && (target.dataset.tabPanel ? target : target.closest('[data-tab-panel]'));
+        return panel ? panel.dataset.tabPanel : '';
+    }
+
+    function activateTab(tabName, updateHistory, hash) {
+        if (!tabPanels.some(function (panel) { return panel.dataset.tabPanel === tabName; })) {
+            return;
+        }
+
+        tabPanels.forEach(function (panel) {
+            panel.hidden = panel.dataset.tabPanel !== tabName;
+        });
+        const activeHash = hash === undefined ? window.location.hash : hash;
+        const activeLink = navigationLinks.find(function (link) {
+            return activeHash && link.hash === activeHash;
+        }) || navigationLinks.find(function (link) {
+            return tabForHash(link.hash) === tabName;
+        });
+        navigationLinks.forEach(function (link) {
+            const isActive = link === activeLink;
+            link.classList.toggle('active', isActive);
+            if (isActive) {
+                link.setAttribute('aria-current', 'page');
+            } else {
+                link.removeAttribute('aria-current');
+            }
+        });
+        if (mainContent) {
+            mainContent.scrollTop = 0;
+        }
+
+        if (updateHistory && hash && window.location.hash !== hash) {
+            window.history.pushState(null, '', hash);
+        }
+    }
+
+    document.querySelectorAll('a[href^="#"]').forEach(function (link) {
+        link.addEventListener('click', function (event) {
+            const tabName = tabForHash(link.hash);
+            if (!tabName) {
+                return;
+            }
+            event.preventDefault();
+            activateTab(tabName, true, link.hash);
+        });
+    });
+
+    const initialTab = document.body.dataset.initialTab || 'home';
+    const startingTab = initialTab === 'home' ? (tabForHash(window.location.hash) || initialTab) : initialTab;
+    activateTab(startingTab, false, initialTab === 'home' ? window.location.hash : '');
+    window.addEventListener('popstate', function () {
+        activateTab(tabForHash(window.location.hash) || document.body.dataset.initialTab || 'home', false);
+    });
+
     const minDate = new Date();
     minDate.setHours(0, 0, 0, 0);
 
@@ -118,6 +179,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const courtInput = openPlayForm.querySelector('[name="court_id"]');
         const playerList = openPlayForm.querySelector('#open-play-player-list');
         const rosterPanel = openPlayForm.querySelector('#open-play-court-roster');
+        const submitButton = openPlayForm.querySelector('button[type="submit"]');
         const rosterTitle = rosterPanel.querySelector('[data-roster-title]');
         const rosterStatus = rosterPanel.querySelector('[data-roster-status]');
         const rosterPlayers = rosterPanel.querySelector('[data-roster-players]');
@@ -126,6 +188,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function updateCourtRoster() {
             window.clearTimeout(updateTimeout);
+            submitButton.disabled = Boolean(courtInput.value);
             updateTimeout = window.setTimeout(async function () {
                 if (rosterController) {
                     rosterController.abort();
@@ -183,6 +246,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     });
 
                     if (!courtInput.value) {
+                        submitButton.disabled = false;
                         return;
                     }
 
@@ -192,6 +256,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (!selectedCourt) {
                         throw new Error('The selected court is no longer available.');
                     }
+                    submitButton.disabled = !selectedCourt.available;
 
                     const selectedSlot = slotInput.options[slotInput.selectedIndex].text;
                     const pendingHost = (openPlayForm.querySelector('[name="host_name"]')?.value || '').trim();
@@ -237,6 +302,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 } catch (error) {
                     if (error.name !== 'AbortError') {
+                        submitButton.disabled = Boolean(courtInput.value);
                         if (courtInput.value) {
                             rosterStatus.textContent = 'Players could not be loaded. Please try again.';
                         }

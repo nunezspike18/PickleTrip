@@ -44,8 +44,14 @@ function handleBookingSubmission(array $postData): array
         return ['success' => false, 'message' => 'Please select a valid court.'];
     }
     $durationHours = 0;
+    $paymentReference = '';
 
     if ($bookingType === 'open_play') {
+        $paymentReference = sanitizeText($postData['payment_reference'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9-]{5,40}$/', $paymentReference)) {
+            return ['success' => false, 'message' => 'Pay the open-play fee first, then enter a valid GCash transaction number.'];
+        }
+
         $openPlaySlots = [
             '16:00-20:00' => ['16:00', '20:00'],
             '20:00-00:00' => ['20:00', '00:00'],
@@ -114,17 +120,23 @@ function handleBookingSubmission(array $postData): array
             'player_names' => $playerList,
             'players_count' => $totalPlayers,
             'payment_amount' => $paymentAmount,
+            'payment_reference' => $bookingType === 'open_play' ? $paymentReference : null,
         ], $players);
     } catch (SupabaseException $error) {
         if ($error->apiCode === 'P0001') {
             return ['success' => false, 'message' => $error->getMessage()];
+        }
+        if ($error->apiCode === '23505' && $bookingType === 'open_play') {
+            return ['success' => false, 'message' => 'That GCash transaction number has already been used. Check the number and try again.'];
         }
         throw $error;
     }
 
     return [
         'success' => true,
-        'message' => 'Booking confirmed. Please pay by GCash and submit your transaction reference for manual verification.',
+        'message' => $bookingType === 'open_play'
+            ? 'Open-play booking received. Your GCash payment is pending manual verification.'
+            : 'Booking confirmed. Please pay by GCash and submit your transaction reference for manual verification.',
         'reference' => $reference,
         'booking_type' => $bookingType,
         'booking_date' => $date,
@@ -138,6 +150,7 @@ function handleBookingSubmission(array $postData): array
         'players_count' => $totalPlayers,
         'payment_amount' => $paymentAmount,
         'payment_status' => 'pending',
+        'payment_reference' => $paymentReference,
     ];
 }
 
@@ -187,6 +200,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $overview = getCourtAvailabilityToday();
 $recentBookings = getRecentBookings(10, true);
+$initialTab = 'home';
+$bookingTab = $bookingResult['booking_type'] ?? $submittedBookingType;
+if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
+    $initialTab = $bookingTab;
+} elseif ($paymentMessage !== '' || (($_POST['action'] ?? '') === 'submit_payment_reference' && $errorMessage !== '')) {
+    $initialTab = 'my-bookings';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -195,9 +215,9 @@ $recentBookings = getRecentBookings(10, true);
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pickle Trip | Play. Book. Enjoy!</title>
     <meta name="description" content="Book open play sessions and rent pickleball courts with Pickle Trip." />
-    <link rel="stylesheet" href="assets/css/style.css?v=6" />
+    <link rel="stylesheet" href="assets/css/style.css?v=8" />
 </head>
-<body>
+<body class="public-site" data-initial-tab="<?= htmlspecialchars($initialTab) ?>">
     <header class="site-header">
         <div class="container navbar">
             <a href="#top" class="brand" aria-label="Pickle Trip home">
@@ -220,8 +240,17 @@ $recentBookings = getRecentBookings(10, true);
         </div>
     </header>
 
-    <main id="top">
-        <section class="hero">
+    <main>
+        <?php if ($successMessage !== ''): ?>
+            <div class="container alert success" role="status"><?= htmlspecialchars($successMessage) ?></div>
+        <?php endif; ?>
+        <?php if ($paymentMessage !== ''): ?>
+            <div class="container alert success" role="status"><?= htmlspecialchars($paymentMessage) ?></div>
+        <?php endif; ?>
+        <?php if ($errorMessage !== ''): ?>
+            <div class="container alert error" role="alert"><?= htmlspecialchars($errorMessage) ?></div>
+        <?php endif; ?>
+        <section class="hero" id="top" data-tab-panel="home" <?= $initialTab !== 'home' ? 'hidden' : '' ?>>
             <div class="container hero-grid">
                 <div class="hero-copy">
                     <span class="status-pill available" style="margin-bottom: 18px;">Now booking</span>
@@ -235,7 +264,7 @@ $recentBookings = getRecentBookings(10, true);
             </div>
         </section>
 
-        <section class="section">
+        <section class="section" data-tab-panel="home" <?= $initialTab !== 'home' ? 'hidden' : '' ?>>
             <div class="container">
                 <div class="section-head">
                     <h2>Why players love Pickle Trip</h2>
@@ -261,7 +290,7 @@ $recentBookings = getRecentBookings(10, true);
             </div>
         </section>
 
-        <section class="section" id="open-play">
+        <section class="section" id="open-play" data-tab-panel="open_play" <?= $initialTab !== 'open_play' ? 'hidden' : '' ?>>
             <div class="container">
                 <div class="section-head">
                     <div>
@@ -269,12 +298,6 @@ $recentBookings = getRecentBookings(10, true);
                         <h2>Book a session</h2>
                     </div>
                 </div>
-                <?php if ($successMessage !== ''): ?>
-                    <div class="alert success"><?= htmlspecialchars($successMessage) ?></div>
-                <?php endif; ?>
-                <?php if ($errorMessage !== ''): ?>
-                    <div class="alert error"><?= htmlspecialchars($errorMessage) ?></div>
-                <?php endif; ?>
                 <details class="booking-details" <?= $submittedBookingType === 'open_play' || ($bookingResult && ($bookingResult['booking_type'] ?? '') === 'open_play') ? 'open' : '' ?>>
                     <summary>Open play booking <span>Choose your court, players, and time</span></summary>
                     <div class="booking-shell">
@@ -337,8 +360,26 @@ $recentBookings = getRecentBookings(10, true);
                                     <button type="button" class="add-player" data-add-player>Add another player</button>
                                 </div>
                             </div>
+                            <div class="payment-instructions">
+                                <h4>Pay before booking open play</h4>
+                                <figure class="payment-qr">
+                                    <img src="assets/images/gcash-qr.jpg" alt="GCash InstaPay QR code for Pickle Trip payments" width="410" height="410" />
+                                    <figcaption>After choosing all players, wait for the court roster to show enough spots, then pay the exact total shown above. Use the host name and session date in the payment message.</figcaption>
+                                </figure>
+                                <?php if (GCASH_NUMBER !== ''): ?>
+                                    <div class="summary-row">
+                                        <span>GCash number</span>
+                                        <strong><?= htmlspecialchars(GCASH_NUMBER) ?></strong>
+                                    </div>
+                                <?php endif; ?>
+                                <p>After paying, enter the GCash transaction number below. Availability is checked again when you submit, so a spot may be taken while you pay. The venue verifies payments manually.</p>
+                                <div class="form-field">
+                                    <label for="op_payment_reference">GCash transaction number</label>
+                                    <input id="op_payment_reference" type="text" name="payment_reference" minlength="5" maxlength="40" pattern="[A-Za-z0-9-]{5,40}" autocomplete="off" required />
+                                </div>
+                            </div>
                             <div class="form-actions">
-                                <button type="submit" class="button-primary">Book and view payment details</button>
+                                <button type="submit" class="button-primary">I paid — submit open-play booking</button>
                             </div>
                         </form>
                     </div>
@@ -348,7 +389,8 @@ $recentBookings = getRecentBookings(10, true);
                             <div class="summary-row"><span>Booking type</span><strong>Open Play</strong></div>
                             <div class="summary-row"><span>Player limit</span><strong>12 players max</strong></div>
                             <div class="summary-row"><span>Host included</span><strong>Yes</strong></div>
-                            <div class="summary-row"><span>Confirmation</span><strong>Instant</strong></div>
+                            <div class="summary-row"><span>Payment</span><strong>Pay first by GCash</strong></div>
+                            <div class="summary-row"><span>Verification</span><strong>Manual by venue</strong></div>
                         </div>
                         <div class="info-grid" style="margin-top: 18px;">
                             <div class="info-box">
@@ -366,7 +408,7 @@ $recentBookings = getRecentBookings(10, true);
             </div>
         </section>
 
-        <section class="section" id="court-rental">
+        <section class="section" id="court-rental" data-tab-panel="court_rental" <?= $initialTab !== 'court_rental' ? 'hidden' : '' ?>>
             <div class="container">
                 <div class="section-head">
                     <div>
@@ -461,7 +503,7 @@ $recentBookings = getRecentBookings(10, true);
             </div>
         </section>
 
-        <section class="section" id="courts">
+        <section class="section" id="courts" data-tab-panel="courts" <?= $initialTab !== 'courts' ? 'hidden' : '' ?>>
             <div class="container">
                 <div class="section-head">
                     <div>
@@ -486,7 +528,7 @@ $recentBookings = getRecentBookings(10, true);
             </div>
         </section>
 
-        <section class="section" id="my-bookings">
+        <section class="section" id="my-bookings" data-tab-panel="my-bookings" <?= $initialTab !== 'my-bookings' ? 'hidden' : '' ?>>
             <div class="container">
                 <div class="section-head">
                     <h2>My bookings</h2>
@@ -537,16 +579,8 @@ $recentBookings = getRecentBookings(10, true);
             </div>
         </section>
 
-        <?php if ($paymentMessage !== ''): ?>
-            <section class="section">
-                <div class="container">
-                    <div class="alert success"><?= htmlspecialchars($paymentMessage) ?></div>
-                </div>
-            </section>
-        <?php endif; ?>
-
         <?php if ($bookingResult && $bookingResult['success']): ?>
-            <section class="section" id="booking-confirmation">
+            <section class="section" id="booking-confirmation" data-tab-panel="<?= htmlspecialchars($bookingResult['booking_type']) ?>" <?= $initialTab !== $bookingResult['booking_type'] ? 'hidden' : '' ?>>
                 <div class="container">
                     <div class="card summary-card">
                         <h3>Booking confirmation</h3>
@@ -564,12 +598,18 @@ $recentBookings = getRecentBookings(10, true);
                             <div class="summary-row"><span>Payment status</span><strong><?= htmlspecialchars(ucfirst($bookingResult['payment_status'] ?? 'pending')) ?></strong></div>
                         </div>
                         <div class="payment-instructions">
-                            <h4>Pay with GCash</h4>
+                            <h4><?= $bookingResult['booking_type'] === 'open_play' ? 'Open-play payment' : 'Pay with GCash' ?></h4>
                             <figure class="payment-qr">
                                 <img src="assets/images/gcash-qr.jpg" alt="GCash InstaPay QR code for Pickle Trip payments" width="410" height="410" />
                                 <figcaption>Scan the QR code with GCash and enter the exact booking fee shown above.</figcaption>
                             </figure>
-                            <p>Include booking reference <strong><?= htmlspecialchars($bookingResult['reference']) ?></strong> in your payment message. Bookings are reserved immediately; payments are manually verified.</p>
+                            <?php if ($bookingResult['booking_type'] === 'open_play' && !empty($bookingResult['payment_reference'])): ?>
+                                <p>Your open-play booking was submitted after payment. Keep booking reference <strong><?= htmlspecialchars($bookingResult['reference']) ?></strong>; payment is pending manual verification.</p>
+                            <?php elseif ($bookingResult['booking_type'] === 'open_play'): ?>
+                                <p>Pay the exact fee first, then enter your GCash transaction number below. Keep booking reference <strong><?= htmlspecialchars($bookingResult['reference']) ?></strong>.</p>
+                            <?php else: ?>
+                                <p>Include booking reference <strong><?= htmlspecialchars($bookingResult['reference']) ?></strong> in your payment message. Bookings are reserved immediately; payments are manually verified.</p>
+                            <?php endif; ?>
                             <?php if (GCASH_NUMBER !== ''): ?>
                                 <div class="summary-row">
                                     <span>GCash number</span>
@@ -602,13 +642,13 @@ $recentBookings = getRecentBookings(10, true);
             </section>
         <?php endif; ?>
 
-        <section class="section" id="about">
+        <section class="section" id="about" data-tab-panel="about" <?= $initialTab !== 'about' ? 'hidden' : '' ?>>
             <div class="container grid-two">
                 <div class="card form-card">
                     <h3>About Pickle Trip</h3>
                     <p class="muted-note">Pickle Trip was built to help players find and book pickleball sessions quickly, comfortably, and without friction. Whether you're joining open play or reserving a private court, the experience is streamlined and designed for community play.</p>
                 </div>
-                <div class="card form-card">
+                <div class="card form-card" id="contact">
                     <h3>Contact</h3>
                     <div class="contact-list">
                         <div class="contact-box"><strong>Phone</strong><div class="muted-note">+1 (415) 555-0132</div></div>
@@ -620,7 +660,7 @@ $recentBookings = getRecentBookings(10, true);
         </section>
     </main>
 
-    <footer class="site-footer" id="contact">
+    <footer class="site-footer">
         <div class="container footer-inner">
             <span>© 2026 Pickle Trip</span>
             <span>Play. Book. Enjoy!</span>
@@ -628,6 +668,6 @@ $recentBookings = getRecentBookings(10, true);
         </div>
     </footer>
 
-    <script src="assets/js/main.js?v=6"></script>
+    <script src="assets/js/main.js?v=8"></script>
 </body>
 </html>

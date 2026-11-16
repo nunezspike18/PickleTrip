@@ -35,6 +35,14 @@ body {
     color: var(--text);
 }
 
+.public-site {
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 a {
     text-decoration: none;
     color: inherit;
@@ -57,13 +65,21 @@ textarea {
     margin: 0 auto;
 }
 
-.site-header {
+.public-site .site-header {
+    flex: 0 0 auto;
     position: sticky;
     top: 0;
     z-index: 20;
     background: rgba(11, 6, 32, 0.86);
     backdrop-filter: blur(18px);
     border-bottom: 1px solid var(--border);
+}
+
+.public-site > main {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .navbar {
@@ -123,6 +139,10 @@ textarea {
 .nav-links a:hover,
 .nav-links a.active {
     color: var(--lime);
+}
+
+[data-tab-panel][hidden] {
+    display: none !important;
 }
 
 .nav-cta {
@@ -701,7 +721,8 @@ textarea {
     gap: 22px;
 }
 
-.site-footer {
+.public-site .site-footer {
+    flex: 0 0 auto;
     padding: 24px 0 54px;
     border-top: 1px solid var(--border);
     color: var(--muted);
@@ -904,8 +925,26 @@ td .muted {
 }
 
 @media (max-width: 640px) {
+    .navbar {
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 12px 0;
+    }
+
     .nav-links {
-        display: none;
+        order: 3;
+        flex: 1 1 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+
+    .nav-links a {
+        flex: 0 0 auto;
+    }
+
+    .nav-cta {
+        padding: 0.7rem 1rem;
     }
 
     .form-grid,
@@ -965,9 +1004,16 @@ td .muted {
         display: none !important;
     }
 
-    body {
+    .public-site {
+        height: auto;
+        display: block;
+        overflow: visible;
         background: white;
         color: black;
+    }
+
+    .public-site > main {
+        overflow: visible;
     }
 
     .card,
