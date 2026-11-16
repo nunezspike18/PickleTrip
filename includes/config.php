@@ -13,7 +13,7 @@ if (!defined('SUPABASE_SERVICE_ROLE_KEY')) {
 }
 
 if (!defined('GCASH_NUMBER')) {
-    define('GCASH_NUMBER', (string) (getenv('PICKLE_GCASH_NUMBER') ?: '09563563926'));
+    define('GCASH_NUMBER', '09563563926');
 }
 
 if (!defined('OPEN_PLAY_PRICE')) {
