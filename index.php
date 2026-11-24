@@ -255,6 +255,7 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
         <?php if ($errorMessage !== ''): ?>
             <div class="container alert error" role="alert"><?= htmlspecialchars($errorMessage) ?></div>
         <?php endif; ?>
+        <div class="container react-assistant-container" id="react-public-assistant"></div>
         <section class="hero" id="top" data-tab-panel="home" <?= $initialTab !== 'home' ? 'hidden' : '' ?>>
             <div class="container hero-grid">
                 <div class="hero-copy">
@@ -610,6 +611,7 @@ if (in_array($bookingTab, ['open_play', 'court_rental'], true)) {
         </div>
     </footer>
 
-    <script src="assets/js/main.js?v=9"></script>
+    <script src="assets/js/main.js?v=10"></script>
+    <script src="assets/js/react-public.bundle.js?v=1"></script>
 </body>
 </html>

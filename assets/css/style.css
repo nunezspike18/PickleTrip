@@ -65,6 +65,51 @@ textarea {
     margin: 0 auto;
 }
 
+.react-assistant-container {
+    flex: 0 0 auto;
+}
+
+.react-assistant {
+    margin: 12px 0 0;
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) 2fr auto;
+    align-items: center;
+    gap: 16px;
+}
+
+.react-assistant-label {
+    display: block;
+    color: var(--muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.react-assistant-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--muted);
+}
+
+.react-assistant-meta span {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 9px;
+}
+
+.react-assistant-total {
+    color: var(--lime);
+}
+
+@media (max-width: 760px) {
+    .react-assistant {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+}
+
 .public-site .site-header {
     flex: 0 0 auto;
     position: sticky;

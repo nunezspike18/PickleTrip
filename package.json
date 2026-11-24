@@ -1,0 +1,14 @@
+{
+  "name": "pickle-trip",
+  "private": true,
+  "scripts": {
+    "build:react": "esbuild src/public-react.jsx --bundle --minify --outfile=assets/js/react-public.bundle.js"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
